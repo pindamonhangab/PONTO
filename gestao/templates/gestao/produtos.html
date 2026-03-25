@@ -1,0 +1,194 @@
+{% extends 'gestao/base.html' %}
+{% block title %}Produção{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+
+    {% if messages %}
+        {% for msg in messages %}
+        <div class="alert alert-{{ msg.tags }} alert-dismissible fade show border-0 shadow-sm">
+            {{ msg }} <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+        {% endfor %}
+    {% endif %}
+
+    <div class="d-flex justify-content-between align-items-start mb-5">
+        <div>
+            <h2 class="fw-bold text-dark">Produção</h2>
+            <p class="text-muted">Acompanhe e gerencie o andamento dos pedidos.</p>
+        </div>
+        <div class="d-flex gap-2 align-items-center">
+            <span class="badge bg-secondary">{{ col_aguardando|length }} aguardando</span>
+            <span class="badge bg-primary">{{ col_producao|length }} em produção</span>
+            <span class="badge bg-success">{{ col_pronto|length }} prontos</span>
+            <span class="badge bg-dark">{{ col_entregue|length }} entregues</span>
+        </div>
+    </div>
+
+    {# ===== KANBAN ===== #}
+    <div class="row g-3">
+
+        {% for coluna, label, cor in colunas %}
+        <div class="col-md-3">
+            <div class="p-3 rounded-3" style="background:#f8f9fa; min-height:500px;">
+
+                <div class="d-flex align-items-center gap-2 mb-3">
+                    <div style="width:10px;height:10px;border-radius:50%;background:{{ cor }};flex-shrink:0;"></div>
+                    <span class="fw-bold small text-muted text-uppercase">{{ label }}</span>
+                    <span class="badge bg-white text-dark border ms-auto" style="font-size:11px;">
+                        {{ coluna|length }}
+                    </span>
+                </div>
+
+                {% for pedido in coluna %}
+                <div class="card border-0 shadow-sm mb-3 p-3"
+                     style="border-left:3px solid {{ cor }} !important; cursor:pointer;"
+                     onclick="abrirModal({{ pedido.id }})">
+
+                    <div class="d-flex justify-content-between align-items-start mb-2">
+                        <span class="fw-bold">#{{ pedido.id }}</span>
+                        {% if pedido.pago %}
+                        <span class="badge bg-success" style="font-size:10px;">Pago</span>
+                        {% else %}
+                        <span class="badge bg-warning text-dark" style="font-size:10px;">Pendente</span>
+                        {% endif %}
+                    </div>
+
+                    <div class="fw-bold small mb-1">{{ pedido.cliente.nome }}</div>
+                    <div class="text-muted" style="font-size:11px;">
+                        R$ {{ pedido.valor_total|floatformat:2 }} · {{ pedido.itens.count }} item(s)
+                    </div>
+
+                    {% if pedido.data_prevista %}
+                    <div class="mt-2 d-flex align-items-center gap-1" style="font-size:11px;">
+                        <i class="bi bi-calendar3 text-muted"></i>
+                        <span class="text-muted">{{ pedido.data_prevista|date:"d/m/Y" }}</span>
+                    </div>
+                    {% endif %}
+
+                    {% if pedido.observacao_producao %}
+                    <div class="mt-2 p-2 rounded" style="background:#f0f0f0;font-size:11px;color:#555;">
+                        {{ pedido.observacao_producao|truncatechars:60 }}
+                    </div>
+                    {% endif %}
+
+                    {% if pedido.notificado %}
+                    <div class="mt-1" style="font-size:10px;color:#198754;">
+                        <i class="bi bi-envelope-check me-1"></i>Cliente notificado
+                    </div>
+                    {% endif %}
+                </div>
+                {% endfor %}
+
+            </div>
+        </div>
+        {% endfor %}
+
+    </div>
+</div>
+
+{# ===== MODAL ===== #}
+<div id="overlay-modal" onclick="fecharModal()"
+     style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:400;"></div>
+
+<div id="modal-pedido"
+     style="display:none;position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);
+            width:520px;max-width:95vw;background:white;border-radius:16px;
+            padding:32px;z-index:500;box-shadow:0 20px 60px rgba(0,0,0,.2);
+            max-height:90vh;overflow-y:auto;">
+
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h5 class="fw-bold mb-0" id="modal-titulo">Pedido</h5>
+        <button onclick="fecharModal()"
+                style="background:none;border:none;font-size:1.5rem;cursor:pointer;color:#adb5bd;line-height:1;">×</button>
+    </div>
+
+    <form method="POST" id="form-producao">
+        {% csrf_token %}
+        <input type="hidden" name="pedido_id" id="modal-pedido-id">
+
+        <div class="mb-3">
+            <label class="form-label fw-bold small text-muted">STATUS DE PRODUÇÃO</label>
+            <select name="status_producao" id="modal-status" class="form-select border-0 bg-light">
+                <option value="aguardando">⏳ Aguardando</option>
+                <option value="producao">🧵 Em Produção</option>
+                <option value="pronto">✅ Pronto</option>
+                <option value="entregue">📦 Entregue</option>
+            </select>
+        </div>
+
+        <div class="mb-3">
+            <label class="form-label fw-bold small text-muted">DATA PREVISTA DE ENTREGA</label>
+            <input type="date" name="data_prevista" id="modal-data"
+                   class="form-control border-0 bg-light">
+        </div>
+
+        <div class="mb-3">
+            <label class="form-label fw-bold small text-muted">OBSERVAÇÃO DE PRODUÇÃO</label>
+            <textarea name="observacao_producao" id="modal-obs" rows="3"
+                      class="form-control border-0 bg-light"
+                      placeholder="Ex: Aguardando linha vermelha..."></textarea>
+        </div>
+
+        <div class="mb-4">
+            <div class="form-check">
+                <input class="form-check-input" type="checkbox" name="notificar_cliente"
+                       id="modal-notificar" value="1">
+                <label class="form-check-label small fw-bold" for="modal-notificar">
+                    <i class="bi bi-envelope me-1 text-danger"></i>
+                    Notificar cliente por email agora
+                </label>
+                <div id="modal-email-aviso" class="form-text text-muted" style="display:none;"></div>
+            </div>
+        </div>
+
+        <div class="d-flex gap-2">
+            <button type="submit" class="btn btn-danger fw-bold w-100 py-2">
+                <i class="bi bi-save me-1"></i> Salvar
+            </button>
+            <button type="button" onclick="fecharModal()" class="btn btn-light w-100 py-2">
+                Cancelar
+            </button>
+        </div>
+    </form>
+</div>
+
+{# JSON com dados dos pedidos — passado de forma segura via json_script #}
+{{ pedidos_json|json_script:"pedidos-data" }}
+
+<script>
+const pedidosData = JSON.parse(document.getElementById('pedidos-data').textContent);
+
+function abrirModal(id) {
+    const p = pedidosData[id];
+    if (!p) return;
+
+    document.getElementById('modal-titulo').textContent    = `Pedido #${id} — ${p.cliente}`;
+    document.getElementById('modal-pedido-id').value       = id;
+    document.getElementById('modal-status').value          = p.status_producao;
+    document.getElementById('modal-data').value            = p.data_prevista || '';
+    document.getElementById('modal-obs').value             = p.observacao || '';
+    document.getElementById('modal-notificar').checked     = false;
+
+    // Aviso sobre email do cliente
+    const aviso = document.getElementById('modal-email-aviso');
+    if (p.email) {
+        aviso.style.display = 'block';
+        aviso.textContent   = `Email será enviado para: ${p.email}`;
+    } else {
+        aviso.style.display = 'block';
+        aviso.innerHTML     = '<span class="text-warning">⚠️ Cliente sem email cadastrado — notificação não será enviada.</span>';
+    }
+
+    document.getElementById('modal-pedido').style.display  = 'block';
+    document.getElementById('overlay-modal').style.display = 'block';
+    document.body.style.overflow = 'hidden';
+}
+
+function fecharModal() {
+    document.getElementById('modal-pedido').style.display  = 'none';
+    document.getElementById('overlay-modal').style.display = 'none';
+    document.body.style.overflow = '';
+}
+</script>
+{% endblock %}

@@ -1,0 +1,176 @@
+{% extends 'gestao/base.html' %}
+{% block title %}Pedido #{{ pedido.id }}{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+
+    {# Cabeçalho #}
+    <div class="d-flex justify-content-between align-items-start mb-5">
+        <div>
+            <a href="{% url 'vendas' %}" class="text-muted small text-decoration-none mb-2 d-block">
+                <i class="bi bi-arrow-left me-1"></i> Voltar para Vendas
+            </a>
+            <h2 class="fw-bold text-dark mb-1">Pedido #{{ pedido.id }}</h2>
+            <p class="text-muted mb-0">
+                <i class="bi bi-calendar3 me-1"></i> {{ pedido.data_pedido|date:"d/m/Y H:i" }}
+                <span class="ms-3">
+                    {% if pedido.pago %}
+                        <span class="badge bg-success">Pago</span>
+                    {% else %}
+                        <span class="badge bg-warning text-dark">Pendente</span>
+                    {% endif %}
+                </span>
+            </p>
+        </div>
+
+        {# Marcar como pago se pendente #}
+        {% if not pedido.pago %}
+        <form method="POST">
+            {% csrf_token %}
+            <input type="hidden" name="acao" value="marcar_pago">
+            <button type="submit" class="btn btn-success shadow-sm fw-bold px-4">
+                <i class="bi bi-check-lg me-1"></i> Marcar como Pago
+            </button>
+        </form>
+        {% endif %}
+    </div>
+
+    {% if messages %}
+        {% for msg in messages %}
+        <div class="alert alert-{{ msg.tags }} alert-dismissible fade show border-0 shadow-sm mb-4">
+            {{ msg }} <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+        {% endfor %}
+    {% endif %}
+
+    <div class="row g-4">
+
+        {# ===== INFO DO PEDIDO ===== #}
+        <div class="col-md-4">
+
+            <div class="card border-0 shadow-sm p-4 mb-4">
+                <h6 class="fw-bold text-muted small mb-3">CLIENTE</h6>
+                <div class="d-flex align-items-center gap-3">
+                    <div style="width:44px;height:44px;border-radius:50%;background:#fff5f5;
+                                display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+                        <i class="bi bi-person-fill text-danger" style="font-size:1.3rem;"></i>
+                    </div>
+                    <div>
+                        <div class="fw-bold">{{ pedido.cliente.nome }}</div>
+                        <div class="text-muted small">{{ pedido.cliente.telefone|default:"Sem telefone" }}</div>
+                    </div>
+                </div>
+                <a href="{% url 'cliente_detalhe' pedido.cliente.id %}"
+                   class="btn btn-sm btn-outline-secondary mt-3 w-100">
+                    <i class="bi bi-folder2-open me-1"></i> Ver matrizes do cliente
+                </a>
+            </div>
+
+            <div class="card border-0 shadow-sm p-4">
+                <h6 class="fw-bold text-muted small mb-3">RESUMO FINANCEIRO</h6>
+                <div class="d-flex justify-content-between mb-2">
+                    <span class="text-muted small">Subtotal</span>
+                    <span>R$ {{ pedido.valor_total|floatformat:2 }}</span>
+                </div>
+                <div class="d-flex justify-content-between mb-2">
+                    <span class="text-muted small">Itens</span>
+                    <span>{{ itens|length }}</span>
+                </div>
+                <hr class="my-3 opacity-25">
+                <div class="d-flex justify-content-between">
+                    <span class="fw-bold">Total</span>
+                    <span class="fw-bold fs-5 text-danger">R$ {{ pedido.valor_total|floatformat:2 }}</span>
+                </div>
+                <div class="mt-3">
+                    {% if pedido.pago %}
+                    <div class="p-2 rounded text-center" style="background:#d1fae5;">
+                        <i class="bi bi-check-circle-fill text-success me-1"></i>
+                        <span class="text-success small fw-bold">Pagamento confirmado</span>
+                    </div>
+                    {% else %}
+                    <div class="p-2 rounded text-center" style="background:#fff3cd;">
+                        <i class="bi bi-clock text-warning me-1"></i>
+                        <span class="text-warning small fw-bold">Aguardando pagamento</span>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+
+        </div>
+
+        {# ===== ITENS DO PEDIDO ===== #}
+        <div class="col-md-8">
+            <div class="card border-0 shadow-sm p-4">
+                <h6 class="fw-bold text-muted small mb-4">ITENS DO PEDIDO</h6>
+
+                {% for item in itens %}
+                <div class="border rounded-3 p-3 mb-3" style="background:#fafafa;">
+                    <div class="row align-items-center">
+
+                        {# Imagem da matriz se existir #}
+                        <div class="col-auto">
+                            {% if item.matriz_bordado and item.matriz_bordado.imagem_original %}
+                            <img src="{{ item.matriz_bordado.imagem_original.url }}"
+                                 alt="preview"
+                                 style="width:56px;height:56px;object-fit:contain;
+                                        border-radius:8px;background:white;
+                                        border:1px solid #e9ecef;padding:4px;">
+                            {% else %}
+                            <div style="width:56px;height:56px;border-radius:8px;
+                                        background:#f0f0f0;display:flex;
+                                        align-items:center;justify-content:center;">
+                                <i class="bi bi-image text-muted"></i>
+                            </div>
+                            {% endif %}
+                        </div>
+
+                        <div class="col">
+                            {# Produto #}
+                            {% if item.produto %}
+                            <div class="fw-bold">{{ item.produto.nome }}</div>
+                            <div class="text-muted small">
+                                {{ item.produto.get_categoria_display }}
+                                {% if item.produto.descricao_produto %}
+                                    · {{ item.produto.descricao_produto }}
+                                {% endif %}
+                            </div>
+                            {% endif %}
+
+                            {# Bordado #}
+                            {% if item.matriz_bordado %}
+                            <div class="{% if item.produto %}mt-1{% endif %} d-flex align-items-center gap-2">
+                                <i class="bi bi-scissors text-danger" style="font-size:12px;"></i>
+                                <span class="small fw-bold text-danger">{{ item.matriz_bordado.descricao }}</span>
+                            </div>
+                            <div class="text-muted" style="font-size:11px;">
+                                {{ item.matriz_bordado.quantidade_pontos|floatformat:0 }} pts ·
+                                {{ item.matriz_bordado.largura_mm }}×{{ item.matriz_bordado.altura_mm }}mm ·
+                                {{ item.matriz_bordado.sequencia_cores }} ·
+                                Bastidor {{ item.matriz_bordado.bastidor_recomendado }}
+                            </div>
+                            {% endif %}
+                        </div>
+
+                        <div class="col-auto text-end">
+                            <div class="text-muted small mb-1">
+                                Qtd: <strong>{{ item.quantidade }}</strong>
+                            </div>
+                            <div class="text-muted small mb-1">
+                                Unit: R$ {{ item.preco_unitario|floatformat:2 }}
+                            </div>
+                            <div class="fw-bold text-danger">
+                                R$ {{ item.subtotal|floatformat:2 }}
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+                {% empty %}
+                <p class="text-muted text-center py-4">Nenhum item neste pedido.</p>
+                {% endfor %}
+
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,192 @@
+{% extends 'gestao/base.html' %}
+{% block title %}Analisar Nova Logo{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+
+    <div class="mb-5">
+        <h2 class="fw-bold text-dark">Analisar Nova Logo</h2>
+        <p class="text-muted">Configure as medidas e a velocidade para um cálculo de precisão industrial.</p>
+    </div>
+
+    <div class="row g-4">
+
+        {# ============================================================ #}
+        {# COLUNA ESQUERDA — Formulário                                  #}
+        {# ============================================================ #}
+        <div class="col-md-8">
+            <div class="card border-0 shadow-sm p-4">
+                <form method="POST" enctype="multipart/form-data" id="form-analise">
+                    {% csrf_token %}
+
+                    {# Descrição #}
+                    <div class="mb-4">
+                        <label class="form-label fw-bold small text-muted">DESCRIÇÃO DO PROJETO</label>
+                        <input type="text" name="descricao" class="form-control border-0 bg-light py-2"
+                               placeholder="Ex: Logo Cliente X" required>
+                    </div>
+
+                    {# Cliente #}
+                    <div class="mb-4">
+                        <label class="form-label fw-bold small text-muted">CLIENTE</label>
+                        <select name="cliente" class="form-select border-0 bg-light">
+                            {% for c in clientes %}
+                                <option value="{{ c.id }}">{{ c.nome }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    {# Produto (opcional) #}
+                    <div class="mb-4">
+                        <label class="form-label fw-bold small text-muted">
+                            PRODUTO / PEÇA
+                            <span class="badge bg-secondary ms-1">Opcional</span>
+                        </label>
+                        <select name="produto" class="form-select border-0 bg-light" id="sel-produto">
+                            <option value="">— Apenas bordado, sem peça —</option>
+                            {% for p in produtos %}
+                                <option value="{{ p.id }}" data-custo="{{ p.custo }}">
+                                    {{ p.nome }} — R$ {{ p.custo|floatformat:2 }}
+                                </option>
+                            {% endfor %}
+                        </select>
+                        <div class="form-text text-muted">
+                            Se selecionar uma peça, o custo dela será somado ao orçamento final.
+                        </div>
+                    </div>
+
+                    {# Largura + Altura + PPM #}
+                    <div class="row mb-4">
+                        <div class="col-md-4">
+                            <label class="form-label fw-bold small text-muted">LARGURA (mm)</label>
+                            <input type="number" step="0.01" min="0" name="largura"
+                                   class="form-control border-0 bg-light" placeholder="Opcional">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label fw-bold small text-muted">ALTURA (mm)</label>
+                            <input type="number" step="0.01" min="0" name="altura"
+                                   class="form-control border-0 bg-light" placeholder="Opcional">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label fw-bold small text-muted">PPM DA MÁQUINA</label>
+                            <input type="number" name="ppm" class="form-control border-0 bg-light"
+                                   value="850" min="100" max="1500">
+                        </div>
+                    </div>
+
+                    {# Upload com preview #}
+                    <div class="mb-4 p-4 border border-dashed rounded-3 text-center bg-light">
+                        <label class="form-label fw-bold d-block mb-1">UPLOAD DA IMAGEM</label>
+                        <p class="text-muted small mb-3">
+                            PNG, JPG ou BMP — o fundo é removido <strong>automaticamente</strong> 🪄
+                        </p>
+                        <input type="file" name="imagem" id="input-imagem"
+                               class="form-control" accept="image/*" required>
+
+                        <div id="preview-container" class="mt-3 d-none text-center">
+                            <img id="preview-img" src="#" alt="Preview"
+                                 style="max-height: 180px; max-width: 100%; border-radius: 8px;
+                                        box-shadow: 0 2px 8px rgba(0,0,0,.12);">
+                            <p id="preview-info" class="text-muted small mt-2"></p>
+                        </div>
+                    </div>
+
+                    {# Densidade #}
+                    <div class="mb-4">
+                        <label class="form-label fw-bold small text-muted">DENSIDADE DO PONTO</label>
+                        <select name="densidade" class="form-select border-0 bg-light">
+                            <option value="4.0">Leve — Apenas contornos / letras finas</option>
+                            <option value="5.5" selected>Médio — Logos padrão (recomendado)</option>
+                            <option value="7.5">Denso — Preenchimento total / Brasões</option>
+                            <option value="9.0">Pesado — Muito detalhado / Relevo</option>
+                        </select>
+                        <div class="form-text text-muted">
+                            Densidade padrão da indústria: entre 4 e 6 pontos/mm². Acima de 7 aumenta rigidez no tecido.
+                        </div>
+                    </div>
+
+                    {# Botão #}
+                    <button type="submit" class="btn btn-danger btn-lg w-100 fw-bold py-3 shadow"
+                            id="btn-analisar">
+                        INICIAR ANÁLISE TÉCNICA 🔥
+                    </button>
+
+                    <div id="loading-msg" class="text-center mt-3 d-none">
+                        <div class="spinner-border text-danger spinner-border-sm me-2" role="status"></div>
+                        <span class="text-muted small">Analisando imagem e removendo fundo, aguarde...</span>
+                    </div>
+
+                </form>
+            </div>
+        </div>
+
+        {# ============================================================ #}
+        {# COLUNA DIREITA — Dicas                                        #}
+        {# ============================================================ #}
+        <div class="col-md-4">
+            <div class="card border-0 shadow-sm p-4 bg-dark text-white h-100">
+                <i class="bi bi-magic text-danger fs-2 mb-3"></i>
+                <h5 class="fw-bold">Remoção de Fundo Automática</h5>
+                <p class="small text-white-50 mb-4">
+                    O sistema detecta e ignora o fundo da imagem automaticamente —
+                    funciona com qualquer cor de fundo (branco, cinza, azul, etc).
+                    Não precisa configurar nada.
+                </p>
+
+                <hr class="border-secondary">
+
+                <h6 class="fw-bold mt-3">Bastidores disponíveis</h6>
+                <ul class="list-unstyled small text-white-50">
+                    <li>🪡 <strong class="text-white">6×6 cm</strong> — Logos mínimos</li>
+                    <li>🪡 <strong class="text-white">10×10 cm</strong> — Logos padrão camisa/polo</li>
+                    <li>🪡 <strong class="text-white">13×18 cm</strong> — Costas de jaqueta, brasões</li>
+                    <li>🪡 <strong class="text-white">20×26 cm</strong> — Peças grandes</li>
+                    <li>🪡 <strong class="text-white">30×40 cm</strong> — Painéis especiais</li>
+                </ul>
+
+                <hr class="border-secondary">
+
+                <h6 class="fw-bold mt-3">Sobre o produto</h6>
+                <p class="small text-white-50 mb-0">
+                    Selecionar um produto é opcional. Se selecionar, o custo da peça
+                    será somado automaticamente ao valor do bordado no orçamento final.
+                </p>
+            </div>
+        </div>
+
+    </div>
+</div>
+
+<script>
+(function () {
+    const inputImg    = document.getElementById('input-imagem');
+    const previewEl   = document.getElementById('preview-container');
+    const previewImg  = document.getElementById('preview-img');
+    const previewInfo = document.getElementById('preview-info');
+    const form        = document.getElementById('form-analise');
+    const btnAnalisar = document.getElementById('btn-analisar');
+    const loadingMsg  = document.getElementById('loading-msg');
+
+    // Preview da imagem ao selecionar arquivo
+    inputImg.addEventListener('change', function () {
+        const file = this.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = function (e) {
+            previewImg.src = e.target.result;
+            previewEl.classList.remove('d-none');
+            previewInfo.textContent = `${file.name} — ${(file.size / 1024).toFixed(1)} KB`;
+        };
+        reader.readAsDataURL(file);
+    });
+
+    // Feedback de loading ao submeter
+    form.addEventListener('submit', function () {
+        btnAnalisar.disabled = true;
+        btnAnalisar.innerHTML =
+            '<span class="spinner-border spinner-border-sm me-2" role="status"></span>Analisando...';
+        loadingMsg.classList.remove('d-none');
+    });
+})();
+</script>
+{% endblock %}

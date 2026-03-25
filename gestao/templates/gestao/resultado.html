@@ -1,0 +1,340 @@
+{% extends 'gestao/base.html' %}
+{% block title %}Resultado da Análise{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+
+    <div class="mb-4">
+        <a href="{% url 'analisar' %}" class="text-muted small text-decoration-none mb-2 d-block">
+            <i class="bi bi-arrow-left me-1"></i> Nova Análise
+        </a>
+        <h2 class="fw-bold text-dark">{{ matriz.descricao }}</h2>
+        <p class="text-muted mb-0">
+            {{ matriz.largura_mm }}×{{ matriz.altura_mm }}mm ·
+            Bastidor {{ matriz.bastidor_recomendado }} ·
+            <span class="badge bg-light text-dark border">{{ analise_extra.tipo_elemento|default:"logo"|capfirst }} detectado</span>
+        </p>
+    </div>
+
+    {# ===== BOTÃO PDF ===== #}
+    <div class="d-flex gap-3 mb-5 flex-wrap">
+        <a href="/download-pdf/{{ matriz.id }}/"
+           class="btn btn-danger shadow-sm fw-bold px-4 py-2">
+            <i class="bi bi-file-earmark-pdf me-2"></i> Baixar Relatório PDF
+        </a>
+        {% if matriz.cliente %}
+        <a href="{% url 'cliente_detalhe' matriz.cliente.id %}"
+           class="btn btn-outline-secondary px-4 py-2">
+            <i class="bi bi-folder2-open me-1"></i> Ver cliente
+        </a>
+        {% endif %}
+    </div>
+
+    {# ================================================ #}
+    {# SEÇÃO 1 — COMPARAÇÃO ANTES/DEPOIS               #}
+    {# ================================================ #}
+    {% if vis.img_comparacao %}
+    <div class="card border-0 shadow-sm p-4 mb-4">
+        <h5 class="fw-bold mb-1">
+            <i class="bi bi-layout-split me-2 text-danger"></i>
+            O que foi detectado para bordar
+        </h5>
+        <p class="text-muted small mb-3">
+            À esquerda: imagem original. À direita: apenas o que o sistema identificou para bordar
+            (fundo ignorado aparece em cinza).
+        </p>
+        <img src="data:image/png;base64,{{ vis.img_comparacao }}"
+             class="w-100 rounded-3" style="max-height:320px;object-fit:contain;background:#f8f9fa;">
+        {% if analise_extra.rgb_fundo %}
+        <div class="mt-2 d-flex align-items-center gap-2">
+            <div style="width:16px;height:16px;border-radius:3px;
+                        background:rgb({{ analise_extra.rgb_fundo.0 }},{{ analise_extra.rgb_fundo.1 }},{{ analise_extra.rgb_fundo.2 }});
+                        border:1px solid #dee2e6;flex-shrink:0;"></div>
+            <span class="text-muted small">
+                Fundo detectado automaticamente:
+                RGB({{ analise_extra.rgb_fundo.0 }}, {{ analise_extra.rgb_fundo.1 }}, {{ analise_extra.rgb_fundo.2 }}) — ignorado no cálculo
+            </span>
+        </div>
+        {% elif analise_extra %}
+        <div class="mt-2 text-muted small">
+            <i class="bi bi-info-circle me-1"></i>
+            Imagem com transparência (PNG com alpha) — fundo transparente ignorado automaticamente.
+        </div>
+        {% endif %}
+    </div>
+    {% endif %}
+
+    {# ================================================ #}
+    {# SEÇÃO 2 — IMAGEM PROCESSADA + MAPA DE CALOR      #}
+    {# ================================================ #}
+    <div class="row g-4 mb-4">
+
+        {% if vis.img_processada %}
+        <div class="col-md-6">
+            <div class="card border-0 shadow-sm p-4 h-100">
+                <h6 class="fw-bold small text-muted mb-1">
+                    <i class="bi bi-scissors me-1 text-danger"></i>
+                    IMAGEM PROCESSADA (SEM FUNDO)
+                </h6>
+                <p class="text-muted small mb-3">
+                    Xadrez = fundo ignorado. Colorido = será bordado.
+                </p>
+                <div class="text-center">
+                    <img src="data:image/png;base64,{{ vis.img_processada }}"
+                         style="max-height:280px;max-width:100%;object-fit:contain;
+                                border-radius:8px;background:#f8f9fa;border:1px solid #e9ecef;">
+                </div>
+                <div class="mt-3 row g-2 text-center">
+                    <div class="col-4">
+                        <div class="p-2 rounded bg-light">
+                            <div class="fw-bold text-danger">{{ analise_extra.fator_cobertura|floatformat:0 }}%</div>
+                            <div class="text-muted" style="font-size:11px;">Cobertura</div>
+                        </div>
+                    </div>
+                    <div class="col-4">
+                        <div class="p-2 rounded bg-light">
+                            <div class="fw-bold">{{ analise_extra.n_cores|default:"—" }}</div>
+                            <div class="text-muted" style="font-size:11px;">Cores</div>
+                        </div>
+                    </div>
+                    <div class="col-4">
+                        <div class="p-2 rounded bg-light">
+                            <div class="fw-bold">{{ analise_extra.tipo_elemento|default:"—"|capfirst }}</div>
+                            <div class="text-muted" style="font-size:11px;">Tipo</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+
+    </div>
+
+    {# ================================================ #}
+    {# SEÇÃO 3 — CAMADAS POR COR                        #}
+    {# ================================================ #}
+    {% if vis.camadas %}
+    <div class="card border-0 shadow-sm p-4 mb-4">
+        <h5 class="fw-bold mb-1">
+            <i class="bi bi-layers me-2 text-danger"></i>
+            Camadas por Cor — Sequência de Bordado
+        </h5>
+        <p class="text-muted small mb-4">
+            Cada camada mostra apenas os pixels daquela cor. A sequência é a ordem de bordado.
+        </p>
+
+        <div class="row g-4">
+            {% for camada in vis.camadas %}
+            <div class="col-md-3 col-sm-6">
+                <div class="card border-0 h-100" style="background:#f8f9fa;">
+                    {# Número da cor #}
+                    <div class="d-flex align-items-center gap-2 p-3 pb-0">
+                        <div style="width:24px;height:24px;border-radius:50%;
+                                    background:{{ camada.hex }};
+                                    border:2px solid rgba(0,0,0,0.15);
+                                    flex-shrink:0;"></div>
+                        <div>
+                            <div class="fw-bold small">{{ forloop.counter }}ª — {{ camada.nome }}</div>
+                            <div class="text-muted" style="font-size:10px;">{{ camada.tipo }}</div>
+                        </div>
+                    </div>
+
+                    {# Imagem da camada #}
+                    <div class="text-center p-3">
+                        <img src="data:image/png;base64,{{ camada.b64 }}"
+                             style="max-height:120px;max-width:100%;object-fit:contain;
+                                    border-radius:6px;border:1px solid #dee2e6;background:white;">
+                    </div>
+
+                    {# Barra de progresso #}
+                    <div class="px-3 pb-3">
+                        <div class="d-flex justify-content-between mb-1">
+                            <span class="text-muted" style="font-size:11px;">{{ camada.pontos }} pts</span>
+                            <span class="fw-bold small" style="color:{{ camada.hex }}">{{ camada.pct }}%</span>
+                        </div>
+                        <div class="progress" style="height:6px;border-radius:3px;">
+                            <div class="progress-bar" role="progressbar"
+                                 style="width:{{ camada.pct }}%;background:{{ camada.hex }};"
+                                 aria-valuenow="{{ camada.pct }}" aria-valuemin="0" aria-valuemax="100">
+                            </div>
+                        </div>
+                        <div class="text-muted mt-1" style="font-size:10px;">
+                            Área: {{ camada.area }}mm²
+                        </div>
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
+    {# ================================================ #}
+    {# SEÇÃO 4 — ORÇAMENTO DETALHADO                    #}
+    {# ================================================ #}
+    <div class="row g-4 mb-4">
+
+        {# Resumo técnico #}
+        <div class="col-md-4">
+            <div class="card border-0 shadow-sm p-4 h-100">
+                <h6 class="fw-bold small text-muted mb-3">RESUMO TÉCNICO</h6>
+
+                {% for label, valor in resumo_tecnico %}
+                <div class="d-flex justify-content-between py-2 {% if not forloop.last %}border-bottom{% endif %}">
+                    <span class="text-muted small">{{ label }}</span>
+                    <span class="fw-bold small">{{ valor }}</span>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+
+        {# Orçamento COM e SEM underlay #}
+        <div class="col-md-4">
+            <div class="card border-0 shadow-sm p-4 h-100">
+                <h6 class="fw-bold small text-muted mb-3">
+                    CUSTO DO BORDADO
+                    <span class="badge bg-secondary ms-1 fw-normal" style="font-size:10px;">
+                        R$ {{ config_valor }}/1k pts
+                    </span>
+                </h6>
+
+                <div class="p-3 rounded mb-3" style="background:#fff5f5;border:1px solid #f5c6cb;">
+                    <div class="text-muted small mb-1">Com underlay ({{ analise_extra.fator_underlay }}×) — recomendado</div>
+                    <div class="fw-bold fs-4 text-danger">R$ {{ custo_com_underlay }}</div>
+                    <div class="text-muted" style="font-size:11px;">{{ analise_extra.total_pontos }} pontos</div>
+                </div>
+
+                {% if produto %}
+                <hr class="opacity-25 my-3">
+                <div class="d-flex justify-content-between mb-2">
+                    <span class="text-muted small">{{ produto.nome }}</span>
+                    <span>R$ {{ produto.custo|floatformat:2 }}</span>
+                </div>
+                <div class="d-flex justify-content-between p-2 rounded"
+                     style="background:#fff5f5;">
+                    <span class="fw-bold">TOTAL</span>
+                    <span class="fw-bold text-danger fs-5">R$ {{ valor_total|floatformat:2 }}</span>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+
+        {# Custo por cor #}
+        <div class="col-md-4">
+            <div class="card border-0 shadow-sm p-4 h-100">
+                <h6 class="fw-bold small text-muted mb-3">CUSTO POR COR</h6>
+                {% if custo_por_cor %}
+                    {% for item in custo_por_cor %}
+                    <div class="d-flex align-items-center gap-2 py-2 {% if not forloop.last %}border-bottom{% endif %}">
+                        <div style="width:12px;height:12px;border-radius:2px;
+                                    background:{{ item.hex }};border:1px solid rgba(0,0,0,0.1);
+                                    flex-shrink:0;"></div>
+                        <span class="text-muted small flex-grow-1">{{ item.nome }}</span>
+                        <span class="badge bg-light text-muted border" style="font-size:10px;">
+                            {{ item.pct }}%
+                        </span>
+                        <span class="fw-bold small text-danger">R$ {{ item.custo }}</span>
+                    </div>
+                    {% endfor %}
+                {% else %}
+                <p class="text-muted small">Dados de cor não disponíveis.</p>
+                {% endif %}
+            </div>
+        </div>
+
+    </div>
+
+    {# ================================================ #}
+    {# SEÇÃO 5 — AJUSTE MANUAL DE COBERTURA             #}
+    {# ================================================ #}
+    <div class="card border-0 shadow-sm p-4 mb-4">
+        <h5 class="fw-bold mb-1">
+            <i class="bi bi-sliders me-2 text-danger"></i>
+            Ajuste Manual de Cobertura
+        </h5>
+        <p class="text-muted small mb-4">
+            O sistema detectou <strong>{{ analise_extra.fator_cobertura|floatformat:0 }}%</strong> de cobertura.
+            Se você sabe que o fundo não foi removido corretamente, ajuste abaixo para recalcular.
+        </p>
+
+        <div class="row g-3 align-items-end">
+            <div class="col-md-3">
+                <label class="form-label fw-bold small text-muted">COBERTURA (%)</label>
+                <input type="range" id="slider-cobertura" min="5" max="100"
+                       value="{{ analise_extra.fator_cobertura|floatformat:0 }}"
+                       class="form-range" oninput="recalcular()">
+                <div class="text-center fw-bold text-danger" id="val-cobertura">
+                    {{ analise_extra.fator_cobertura|floatformat:0 }}%
+                </div>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label fw-bold small text-muted">DENSIDADE (pts/mm²)</label>
+                <input type="range" id="slider-densidade" min="3" max="12" step="0.5"
+                       value="{{ matriz.densidade_escolhida }}"
+                       class="form-range" oninput="recalcular()">
+                <div class="text-center fw-bold" id="val-densidade">
+                    {{ matriz.densidade_escolhida }}
+                </div>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label fw-bold small text-muted">UNDERLAY</label>
+                <select id="sel-underlay" class="form-select border-0 bg-light" onchange="recalcular()">
+                    <option value="1.15">Simples (1.15×)</option>
+                    <option value="1.20" {% if analise_extra.fator_underlay == 1.20 %}selected{% endif %}>
+                        Médio (1.20×)
+                    </option>
+                    <option value="1.25" {% if analise_extra.fator_underlay == 1.25 %}selected{% endif %}>
+                        Complexo (1.25×)
+                    </option>
+                </select>
+            </div>
+            <div class="col-md-3">
+                <div class="p-3 rounded text-center" style="background:#fff5f5;border:1px solid #f5c6cb;">
+                    <div class="text-muted small">Pontos recalculados</div>
+                    <div class="fw-bold fs-4 text-danger" id="pontos-ajustados">
+                        {{ analise_extra.total_pontos }}
+                    </div>
+                    <div class="fw-bold text-danger" id="custo-ajustado">
+                        R$ {{ custo_com_underlay }}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {# Sugestão automática de densidade #}
+    {% if sugestao_densidade %}
+    <div class="alert border-0 shadow-sm mb-4" style="background:#e8f5e9;border-left:4px solid #198754 !important;">
+        <div class="d-flex gap-2">
+            <i class="bi bi-lightbulb-fill text-success mt-1" style="flex-shrink:0;"></i>
+            <div class="small">
+                <strong>Sugestão automática de densidade:</strong><br>
+                {{ sugestao_densidade }}
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+</div>
+
+<script>
+const areaTotal   = {{ area_total_mm2 }};
+const valorPorMil = {{ config_valor_float }};
+
+function recalcular() {
+    const cob     = parseFloat(document.getElementById('slider-cobertura').value) / 100;
+    const dens    = parseFloat(document.getElementById('slider-densidade').value);
+    const underlay= parseFloat(document.getElementById('sel-underlay').value);
+
+    document.getElementById('val-cobertura').textContent = Math.round(cob*100) + '%';
+    document.getElementById('val-densidade').textContent = dens.toFixed(1);
+
+    const pontos = Math.round(areaTotal * cob * dens * underlay);
+    const custo  = (pontos / 1000 * valorPorMil).toFixed(2).replace('.', ',');
+
+    document.getElementById('pontos-ajustados').textContent = pontos.toLocaleString('pt-BR');
+    document.getElementById('custo-ajustado').textContent = 'R$ ' + custo;
+}
+</script>
+{% endblock %}

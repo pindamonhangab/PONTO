@@ -1,0 +1,277 @@
+{% extends 'gestao/base.html' %}
+{% block title %}{{ cliente.nome }} — Matrizes{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+
+    {% if messages %}
+        {% for msg in messages %}
+        <div class="alert alert-{{ msg.tags }} alert-dismissible fade show" role="alert">
+            {{ msg }} <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+        {% endfor %}
+    {% endif %}
+
+    <div class="d-flex justify-content-between align-items-start mb-5">
+        <div>
+            <a href="/clientes/" class="text-muted small text-decoration-none mb-2 d-block">
+                <i class="bi bi-arrow-left me-1"></i> Voltar para Clientes
+            </a>
+            <h2 class="fw-bold text-dark mb-1">{{ cliente.nome }}</h2>
+            <p class="text-muted mb-0">
+                {% if cliente.telefone %}<i class="bi bi-telephone me-1"></i> {{ cliente.telefone }}{% endif %}
+                {% if cliente.email %}<i class="bi bi-envelope ms-3 me-1"></i> {{ cliente.email }}{% endif %}
+                <span class="ms-3 badge bg-light text-dark border">{{ matrizes.count }} matriz(es)</span>
+            </p>
+        </div>
+        <button onclick="toggleUpload()" class="btn btn-danger shadow-sm">
+            <i class="bi bi-upload me-1"></i> Adicionar Matriz
+        </button>
+    </div>
+
+    {# Formulário nova matriz #}
+    <div id="form-upload" class="card border-0 shadow-sm p-4 mb-5" style="display:none;">
+        <h6 class="fw-bold mb-3">Nova Matriz para {{ cliente.nome }}</h6>
+        <form method="POST" enctype="multipart/form-data">
+            {% csrf_token %}
+            <input type="hidden" name="acao" value="adicionar_matriz">
+            <div class="row g-3 mb-3">
+                <div class="col-md-6">
+                    <label class="form-label fw-bold small text-muted">DESCRIÇÃO *</label>
+                    <input type="text" name="descricao" class="form-control border-0 bg-light"
+                           placeholder="Ex: Logo Frente Camisa" required>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label fw-bold small text-muted">LARGURA (mm)</label>
+                    <input type="number" step="0.01" min="0" name="largura"
+                           class="form-control border-0 bg-light">
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label fw-bold small text-muted">ALTURA (mm)</label>
+                    <input type="number" step="0.01" min="0" name="altura"
+                           class="form-control border-0 bg-light">
+                </div>
+            </div>
+            <div class="row g-3 mb-3">
+                <div class="col-md-6">
+                    <label class="form-label fw-bold small text-muted">
+                        IMAGEM DA LOGO
+                        <span class="badge bg-secondary ms-1">Para análise de pontos</span>
+                    </label>
+                    <input type="file" name="imagem" id="input-imagem"
+                           class="form-control border-0 bg-light" accept="image/*">
+                    <div class="form-text">PNG ou JPG — fundo removido automaticamente 🪄</div>
+                    <div id="preview-container" class="mt-2 d-none">
+                        <img id="preview-img" src="#" alt="preview"
+                             style="max-height:80px;border-radius:6px;border:1px solid #dee2e6;">
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label fw-bold small text-muted">
+                        ARQUIVO DE BORDADO
+                        <span class="badge bg-secondary ms-1">Para a máquina</span>
+                    </label>
+                    <input type="file" name="arquivo_matriz"
+                           class="form-control border-0 bg-light"
+                           accept=".dst,.pes,.exp,.jef,.hus,.vip,.vp3,.xxx,.pcs,.sew,.shv">
+                    <div class="form-text">.DST, .PES, .EXP, .JEF, .HUS, .VP3…</div>
+                </div>
+            </div>
+            <div class="row g-3 mb-4">
+                <div class="col-md-4">
+                    <label class="form-label fw-bold small text-muted">DENSIDADE DO PONTO</label>
+                    <select name="densidade" class="form-select border-0 bg-light">
+                        <option value="4.0">Leve — Contornos / letras</option>
+                        <option value="5.5" selected>Médio — Logos padrão</option>
+                        <option value="7.5">Denso — Brasões</option>
+                        <option value="9.0">Pesado — Relevo</option>
+                    </select>
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label fw-bold small text-muted">PPM DA MÁQUINA</label>
+                    <input type="number" name="ppm" value="850" min="100" max="1500"
+                           class="form-control border-0 bg-light">
+                </div>
+            </div>
+            <div class="d-flex gap-2">
+                <button type="submit" class="btn btn-danger px-4 fw-bold">
+                    <i class="bi bi-save me-1"></i> Salvar Matriz
+                </button>
+                <button type="button" onclick="toggleUpload()" class="btn btn-light px-4">Cancelar</button>
+            </div>
+        </form>
+    </div>
+
+    {# Grid de matrizes #}
+    {% if matrizes %}
+    <div class="row g-4">
+        {% for m in matrizes %}
+        <div class="col-md-4">
+            <div class="card border-0 shadow-sm h-100">
+
+                {% if m.imagem_original %}
+                <div class="text-center p-3" style="background:#f8f9fa;border-radius:12px 12px 0 0;">
+                    <img src="{{ m.imagem_original.url }}" alt="{{ m.descricao }}"
+                         style="max-height:140px;max-width:100%;object-fit:contain;">
+                </div>
+                {% else %}
+                <div class="text-center p-4" style="background:#f8f9fa;border-radius:12px 12px 0 0;">
+                    <i class="bi bi-image text-muted" style="font-size:3rem;"></i>
+                    <p class="text-muted small mb-0 mt-1">Sem imagem</p>
+                </div>
+                {% endif %}
+
+                <div class="p-3">
+                    <h6 class="fw-bold mb-1">{{ m.descricao }}</h6>
+                    <p class="text-muted small mb-2">
+                        {{ m.largura_mm }}mm × {{ m.altura_mm }}mm
+                        {% if m.bastidor_recomendado %}· Bastidor {{ m.bastidor_recomendado }}{% endif %}
+                    </p>
+
+                    {% if m.quantidade_pontos > 0 %}
+                    <div class="d-flex gap-2 flex-wrap mb-2">
+                        <span class="badge bg-light text-dark border">
+                            <i class="bi bi-dot text-danger"></i> {{ m.quantidade_pontos }} pts
+                        </span>
+                        <span class="badge bg-light text-dark border">
+                            <i class="bi bi-clock me-1"></i>{{ m.tempo_estimado }}
+                        </span>
+                        {% if m.mudancas_cores > 0 %}
+                        <span class="badge bg-light text-dark border">
+                            <i class="bi bi-palette me-1"></i>{{ m.mudancas_cores|add:1 }} cores
+                        </span>
+                        {% endif %}
+                    </div>
+                    {% if m.sequencia_cores %}
+                    <p class="text-muted mb-2" style="font-size:11px;">{{ m.sequencia_cores }}</p>
+                    {% endif %}
+                    {% endif %}
+
+                    {# ===== BOTÕES DE DOWNLOAD DST E PDF ===== #}
+                    {% if m.imagem_original %}
+                    <div class="row g-2 mb-2">
+                        <div class="col-6">
+                            <a href="/download-dst/{{ m.id }}/"
+                               class="btn btn-dark btn-sm w-100 fw-bold"
+                               title="Gerar e baixar arquivo .DST para RICOMA">
+                                <i class="bi bi-download me-1"></i> .DST
+                            </a>
+                        </div>
+                        <div class="col-6">
+                            <a href="/download-pdf/{{ m.id }}/"
+                               class="btn btn-danger btn-sm w-100 fw-bold"
+                               title="Baixar relatório PDF completo estilo Wilcom">
+                                <i class="bi bi-file-earmark-pdf me-1"></i> PDF
+                            </a>
+                        </div>
+                    </div>
+                    <p class="text-muted mb-2" style="font-size:10px;">
+                        <i class="bi bi-info-circle me-1"></i>
+                        DST compatível com RICOMA · PDF estilo Wilcom
+                    </p>
+                    {% endif %}
+
+                    {# Arquivo de bordado manual #}
+                    {% if m.arquivo_matriz %}
+                    <div class="d-flex align-items-center gap-2 p-2 rounded mb-2"
+                         style="background:#f0f7ff;border:1px solid #cfe2ff;">
+                        <i class="bi bi-file-earmark-zip text-primary"></i>
+                        <div style="min-width:0;">
+                            <div class="fw-bold small text-primary" style="font-size:11px;">{{ m.extensao_arquivo }}</div>
+                            <div class="text-muted"
+                                 style="font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+                                {{ m.nome_arquivo }}
+                            </div>
+                        </div>
+                        <a href="{{ m.arquivo_matriz.url }}" download
+                           class="btn btn-sm btn-outline-primary ms-auto" style="font-size:11px;">
+                            <i class="bi bi-download"></i>
+                        </a>
+                    </div>
+                    {% else %}
+                    <div class="d-flex align-items-center gap-2 p-2 rounded mb-2"
+                         style="background:#fff8e1;border:1px solid #ffe082;">
+                        <i class="bi bi-exclamation-triangle text-warning small"></i>
+                        <span class="text-muted" style="font-size:11px;">Sem arquivo manual</span>
+                        <button class="btn btn-sm ms-auto"
+                                style="font-size:11px;background:#fff3cd;border:1px solid #ffe082;"
+                                onclick="abrirUploadArquivo({{ m.id }})">
+                            <i class="bi bi-upload"></i> Anexar
+                        </button>
+                    </div>
+                    {% endif %}
+
+                    <form method="POST"
+                          onsubmit="return confirm('Excluir a matriz {{ m.descricao|escapejs }}?')">
+                        {% csrf_token %}
+                        <input type="hidden" name="acao" value="excluir_matriz">
+                        <input type="hidden" name="matriz_id" value="{{ m.id }}">
+                        <button type="submit" class="btn btn-sm btn-outline-danger w-100 mt-1">
+                            <i class="bi bi-trash me-1"></i> Excluir
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="card border-0 shadow-sm p-5 text-center">
+        <i class="bi bi-folder2-open text-muted mb-3" style="font-size:3rem;"></i>
+        <h5 class="text-muted">Nenhuma matriz cadastrada ainda</h5>
+        <p class="text-muted small">Clique em "Adicionar Matriz" para fazer o primeiro upload.</p>
+    </div>
+    {% endif %}
+
+</div>
+
+{# Mini-modal para anexar arquivo a matriz existente #}
+<div id="form-anexar" class="card border-warning border p-4 mt-4" style="display:none;">
+    <h6 class="fw-bold mb-3 text-warning">Anexar arquivo de bordado</h6>
+    <form method="POST" enctype="multipart/form-data">
+        {% csrf_token %}
+        <input type="hidden" name="acao" value="anexar_arquivo">
+        <input type="hidden" name="matriz_id" id="anexar-matriz-id">
+        <div class="row g-3 align-items-end">
+            <div class="col-md-7">
+                <label class="form-label fw-bold small text-muted">ARQUIVO DE BORDADO</label>
+                <input type="file" name="arquivo_matriz" class="form-control border-0 bg-light"
+                       accept=".dst,.pes,.exp,.jef,.hus,.vip,.vp3,.xxx,.pcs,.sew,.shv" required>
+                <div class="form-text">.DST, .PES, .EXP, .JEF, .HUS, .VP3…</div>
+            </div>
+            <div class="col-md-5 d-flex gap-2">
+                <button type="submit" class="btn btn-warning fw-bold w-100">Salvar</button>
+                <button type="button" onclick="fecharAnexar()" class="btn btn-light w-100">Cancelar</button>
+            </div>
+        </div>
+    </form>
+</div>
+
+<script>
+function toggleUpload() {
+    const f = document.getElementById('form-upload');
+    f.style.display = f.style.display === 'none' ? 'block' : 'none';
+    if (f.style.display === 'block') f.scrollIntoView({ behavior:'smooth', block:'start' });
+}
+function abrirUploadArquivo(matriciaId) {
+    document.getElementById('form-upload').style.display = 'none';
+    document.getElementById('anexar-matriz-id').value = matriciaId;
+    const f = document.getElementById('form-anexar');
+    f.style.display = 'block';
+    f.scrollIntoView({ behavior:'smooth', block:'start' });
+}
+function fecharAnexar() {
+    document.getElementById('form-anexar').style.display = 'none';
+}
+document.getElementById('input-imagem').addEventListener('change', function() {
+    const file = this.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = e => {
+        document.getElementById('preview-img').src = e.target.result;
+        document.getElementById('preview-container').classList.remove('d-none');
+    };
+    reader.readAsDataURL(file);
+});
+</script>
+{% endblock %}

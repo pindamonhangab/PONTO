@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 46 46" height="46" width="46">
+  <!-- Background -->
+  <rect x="0" y="0" width="46" height="46" rx="10" fill="#DC3545"/>
+  <!-- Spool flanges -->
+  <rect x="5"  y="7"  width="36" height="7" rx="3.5" fill="white"/>
+  <rect x="5"  y="32" width="36" height="7" rx="3.5" fill="white"/>
+  <!-- Spool body -->
+  <rect x="10" y="14" width="26" height="18" rx="1.5" fill="white" opacity="0.15"/>
+  <!-- Thread wraps -->
+  <line x1="13" y1="15" x2="23" y2="32" stroke="white" stroke-width="1.2" opacity="0.5"  stroke-linecap="round"/>
+  <line x1="20" y1="15" x2="29" y2="31" stroke="white" stroke-width="1.2" opacity="0.35" stroke-linecap="round"/>
+  <!-- Center hole -->
+  <circle cx="23" cy="23" r="5" fill="#DC3545"/>
+  <circle cx="23" cy="23" r="2" fill="white"/>
+</svg>

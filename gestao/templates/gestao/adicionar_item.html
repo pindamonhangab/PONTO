@@ -1,0 +1,152 @@
+{% extends 'gestao/base.html' %}
+{% block title %}Adicionar Item{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+
+    <div class="mb-4">
+        <h2 class="fw-bold text-dark">Adicionar Item ao Pedido</h2>
+        <p class="text-muted">Selecione o cliente, a peça (opcional) e o bordado (opcional).</p>
+    </div>
+
+    {% if messages %}
+        {% for msg in messages %}
+        <div class="alert alert-{{ msg.tags }} alert-dismissible fade show" role="alert">
+            {{ msg }} <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+        {% endfor %}
+    {% endif %}
+
+    <div class="row g-4">
+
+        {# ---- FORMULÁRIO ---- #}
+        <div class="col-md-8">
+            <div class="card border-0 shadow-sm p-4">
+                <form method="POST">
+                    {% csrf_token %}
+
+                    {# Cliente #}
+                    <div class="mb-4">
+                        <label class="form-label fw-bold small text-muted">CLIENTE *</label>
+                        <select name="cliente" id="sel-cliente" class="form-select border-0 bg-light" required>
+                            <option value="">— Selecione —</option>
+                            {% for c in clientes %}
+                            <option value="{{ c.id }}">{{ c.nome }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    {# Pedido em aberto (opcional) #}
+                    <div class="mb-4" id="bloco-pedido" style="display:none;">
+                        <label class="form-label fw-bold small text-muted">ADICIONAR A PEDIDO EXISTENTE</label>
+                        <select name="pedido" id="sel-pedido" class="form-select border-0 bg-light">
+                            <option value="">— Criar novo pedido automaticamente —</option>
+                            {% for p in pedidos_abertos %}
+                            <option value="{{ p.id }}" data-cliente="{{ p.cliente.id }}">
+                                Pedido #{{ p.id }} — {{ p.cliente.nome }} (R$ {{ p.valor_total|floatformat:2 }})
+                            </option>
+                            {% endfor %}
+                        </select>
+                        <div class="form-text text-muted">Só aparecem pedidos não pagos.</div>
+                    </div>
+
+                    {# Produto (opcional) #}
+                    <div class="mb-4">
+                        <label class="form-label fw-bold small text-muted">
+                            PRODUTO / PEÇA
+                            <span class="badge bg-secondary ms-1">Opcional</span>
+                        </label>
+                        <select name="produto" class="form-select border-0 bg-light">
+                            <option value="">— Sem peça (só bordado) —</option>
+                            {% for p in produtos %}
+                            <option value="{{ p.id }}">{{ p.nome }} — R$ {{ p.custo|floatformat:2 }}</option>
+                            {% endfor %}
+                        </select>
+                        <div class="form-text text-muted">
+                            Se não selecionar nenhuma peça, o preço será calculado só com o bordado.
+                        </div>
+                    </div>
+
+                    {# Matriz de bordado (opcional) #}
+                    <div class="mb-4">
+                        <label class="form-label fw-bold small text-muted">
+                            BORDADO / MATRIZ
+                            <span class="badge bg-secondary ms-1">Opcional</span>
+                        </label>
+                        <select name="matriz" class="form-select border-0 bg-light">
+                            <option value="">— Sem bordado (peça lisa) —</option>
+                            {% for m in matrizes %}
+                            <option value="{{ m.id }}">
+                                {{ m.descricao }} — {{ m.quantidade_pontos|floatformat:0 }} pts
+                                ({{ m.largura_mm }}×{{ m.altura_mm }}mm)
+                            </option>
+                            {% endfor %}
+                        </select>
+                        <div class="form-text text-muted">
+                            Se não selecionar nenhum bordado, o preço será só o custo da peça.
+                        </div>
+                    </div>
+
+                    {# Quantidade #}
+                    <div class="mb-4">
+                        <label class="form-label fw-bold small text-muted">QUANTIDADE</label>
+                        <input type="number" name="quantidade" value="1" min="1"
+                               class="form-control border-0 bg-light" style="max-width: 140px;">
+                    </div>
+
+                    <button type="submit" class="btn btn-danger btn-lg w-100 fw-bold py-3 shadow">
+                        ✅ Adicionar ao Pedido
+                    </button>
+                </form>
+            </div>
+        </div>
+
+        {# ---- PAINEL LATERAL ---- #}
+        <div class="col-md-4">
+            <div class="card border-0 shadow-sm p-4 bg-dark text-white">
+                <i class="bi bi-info-circle text-danger fs-2 mb-3"></i>
+                <h5 class="fw-bold">Como funciona</h5>
+                <p class="small text-white-50">
+                    O preço do item é calculado automaticamente somando:
+                </p>
+                <ul class="small text-white-50">
+                    <li><strong class="text-white">Custo da peça</strong> (se selecionada)</li>
+                    <li><strong class="text-white">Custo do bordado</strong> = pontos ÷ 1.000 × valor/1k pts (se selecionado)</li>
+                </ul>
+                <hr class="border-secondary">
+                <p class="small text-white-50 mb-0">
+                    Se não selecionar nenhum produto nem bordado, o item não será criado.
+                    Você pode combinar os dois, usar só um, ou criar um pedido e adicionar mais itens depois.
+                </p>
+            </div>
+        </div>
+
+    </div>
+</div>
+
+<script>
+// Filtra os pedidos em aberto pelo cliente selecionado
+const selCliente = document.getElementById('sel-cliente');
+const selPedido  = document.getElementById('sel-pedido');
+const blocoPedido = document.getElementById('bloco-pedido');
+const opcoesOriginais = Array.from(selPedido.options);
+
+selCliente.addEventListener('change', function () {
+    const clienteId = this.value;
+
+    // Limpa e reconstrói as opções de pedido filtradas
+    selPedido.innerHTML = '<option value="">— Criar novo pedido automaticamente —</option>';
+
+    if (clienteId) {
+        blocoPedido.style.display = 'block';
+        opcoesOriginais.forEach(opt => {
+            if (opt.value === '' || opt.dataset.cliente === clienteId) {
+                selPedido.appendChild(opt.cloneNode(true));
+            }
+        });
+    } else {
+        blocoPedido.style.display = 'none';
+    }
+});
+</script>
+{% endblock %}

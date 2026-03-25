@@ -1,0 +1,179 @@
+{% extends 'gestao/base.html' %}
+{% block title %}Clientes{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+
+    {% if messages %}
+        {% for msg in messages %}
+        <div class="alert alert-{{ msg.tags }} alert-dismissible fade show border-0 shadow-sm" role="alert">
+            {{ msg }} <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+        {% endfor %}
+    {% endif %}
+
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h2 class="fw-bold text-dark">Gestão de Clientes</h2>
+            <p class="text-muted small mb-0">Cadastre clientes e gerencie suas matrizes de bordado.</p>
+        </div>
+        <button onclick="toggleForm()" class="btn btn-danger shadow-sm">
+            <i class="bi bi-plus-lg me-1"></i> Novo Cliente
+        </button>
+    </div>
+
+    {# Formulário novo cliente #}
+    <div id="form-novo" class="card border-0 shadow-sm p-4 mb-4" style="display:none;">
+        <h6 class="fw-bold mb-3">Novo Cliente</h6>
+        <form method="POST">
+            {% csrf_token %}
+            <input type="hidden" name="acao" value="criar">
+            <div class="row g-3">
+                <div class="col-md-4">
+                    <label class="form-label fw-bold small text-muted">NOME *</label>
+                    <input type="text" name="nome" class="form-control border-0 bg-light"
+                           placeholder="Ex: João Silva" required>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label fw-bold small text-muted">TELEFONE</label>
+                    <input type="text" name="telefone" class="form-control border-0 bg-light"
+                           placeholder="Ex: (45) 99999-9999">
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label fw-bold small text-muted">
+                        EMAIL
+                        <span class="badge bg-secondary ms-1 fw-normal" style="font-size:10px;">Para notificações</span>
+                    </label>
+                    <input type="email" name="email" class="form-control border-0 bg-light"
+                           placeholder="Ex: joao@email.com">
+                </div>
+                <div class="col-md-2 d-flex align-items-end gap-2">
+                    <button type="submit" class="btn btn-danger w-100">Salvar</button>
+                    <button type="button" onclick="toggleForm()" class="btn btn-light w-100">Cancelar</button>
+                </div>
+            </div>
+        </form>
+    </div>
+
+    {# Formulário editar cliente #}
+    <div id="form-editar" class="card border-danger border p-4 mb-4" style="display:none;">
+        <h6 class="fw-bold mb-3 text-danger">Editando Cliente</h6>
+        <form method="POST">
+            {% csrf_token %}
+            <input type="hidden" name="acao" value="editar">
+            <input type="hidden" name="cliente_id" id="edit-id">
+            <div class="row g-3">
+                <div class="col-md-4">
+                    <label class="form-label fw-bold small text-muted">NOME *</label>
+                    <input type="text" name="nome" id="edit-nome"
+                           class="form-control border-0 bg-light" required>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label fw-bold small text-muted">TELEFONE</label>
+                    <input type="text" name="telefone" id="edit-telefone"
+                           class="form-control border-0 bg-light">
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label fw-bold small text-muted">EMAIL</label>
+                    <input type="email" name="email" id="edit-email"
+                           class="form-control border-0 bg-light">
+                </div>
+                <div class="col-md-2 d-flex align-items-end gap-2">
+                    <button type="submit" class="btn btn-danger w-100">Salvar</button>
+                    <button type="button" onclick="fecharEditar()" class="btn btn-light w-100">Cancelar</button>
+                </div>
+            </div>
+        </form>
+    </div>
+
+    {# Tabela #}
+    <div class="card border-0 shadow-sm p-4">
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>Nome</th>
+                        <th>Telefone</th>
+                        <th>Email</th>
+                        <th>Matrizes</th>
+                        <th>Ações</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for c in clientes %}
+                    <tr>
+                        <td>
+                            <a href="/clientes/{{ c.id }}/" class="fw-bold text-dark text-decoration-none">
+                                {{ c.nome }}
+                            </a>
+                        </td>
+                        <td class="text-muted">{{ c.telefone|default:"—" }}</td>
+                        <td class="text-muted small">
+                            {% if c.email %}
+                                <i class="bi bi-envelope me-1"></i>{{ c.email }}
+                            {% else %}
+                                <span class="text-warning small">
+                                    <i class="bi bi-exclamation-triangle me-1"></i>Sem email
+                                </span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <span class="badge bg-light text-dark border">
+                                {{ c.matrizes.count }} matriz(es)
+                            </span>
+                        </td>
+                        <td class="d-flex gap-2">
+                            <a href="/clientes/{{ c.id }}/" class="btn btn-sm btn-danger">
+                                <i class="bi bi-folder2-open"></i> Ver matrizes
+                            </a>
+                            <button class="btn btn-sm btn-outline-secondary"
+                                    onclick="abrirEditar('{{ c.id }}', '{{ c.nome|escapejs }}', '{{ c.telefone|escapejs }}', '{{ c.email|escapejs }}')">
+                                <i class="bi bi-pencil"></i>
+                            </button>
+                            <form method="POST"
+                                  onsubmit="return confirm('Excluir {{ c.nome|escapejs }}?')">
+                                {% csrf_token %}
+                                <input type="hidden" name="acao" value="excluir">
+                                <input type="hidden" name="cliente_id" value="{{ c.id }}">
+                                <button type="submit" class="btn btn-sm btn-outline-danger">
+                                    <i class="bi bi-trash"></i>
+                                </button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="5" class="text-center text-muted py-4">
+                            Nenhum cliente cadastrado ainda.
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+</div>
+
+<script>
+function toggleForm() {
+    const f = document.getElementById('form-novo');
+    document.getElementById('form-editar').style.display = 'none';
+    f.style.display = f.style.display === 'none' ? 'block' : 'none';
+    if (f.style.display === 'block') f.querySelector('input[name="nome"]').focus();
+}
+function abrirEditar(id, nome, telefone, email) {
+    document.getElementById('form-novo').style.display = 'none';
+    document.getElementById('edit-id').value       = id;
+    document.getElementById('edit-nome').value     = nome;
+    document.getElementById('edit-telefone').value = telefone;
+    document.getElementById('edit-email').value    = email;
+    const f = document.getElementById('form-editar');
+    f.style.display = 'block';
+    f.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+function fecharEditar() {
+    document.getElementById('form-editar').style.display = 'none';
+}
+</script>
+{% endblock %}

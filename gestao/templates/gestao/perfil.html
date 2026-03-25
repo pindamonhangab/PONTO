@@ -1,0 +1,201 @@
+{% extends 'gestao/base.html' %}
+{% load static %}
+{% block title %}Meu Perfil{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+
+    {% if messages %}
+        {% for msg in messages %}
+        <div class="alert alert-{% if '❌' in message %}danger{% else %}success{% endif %} alert-dismissible fade show border-0 shadow-sm">
+            {{ msg }} <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+        {% endfor %}
+    {% endif %}
+
+    <div class="mb-5">
+        <h2 class="fw-bold text-dark">Meu Perfil</h2>
+        <p class="text-muted">Gerencie suas informações e segurança da conta.</p>
+    </div>
+
+    <div class="row g-4">
+
+        {# ===== COLUNA ESQUERDA — Foto + info ===== #}
+        <div class="col-md-4">
+            <div class="card border-0 shadow-sm p-4 text-center">
+
+                {# Foto de perfil #}
+                <div class="position-relative d-inline-block mx-auto mb-3">
+                    {% if perfil.foto %}
+                        <img src="{{ perfil.foto.url }}" alt="Foto"
+                             style="width:100px;height:100px;border-radius:50%;object-fit:cover;border:3px solid #dc3545;">
+                    {% else %}
+                        <div style="width:100px;height:100px;border-radius:50%;background:#dc3545;
+                                    display:flex;align-items:center;justify-content:center;margin:0 auto;
+                                    border:3px solid #dc3545;">
+                            <i class="bi bi-person-fill text-white" style="font-size:2.5rem;"></i>
+                        </div>
+                    {% endif %}
+                    <button onclick="document.getElementById('inp-foto').click()"
+                            style="position:absolute;bottom:0;right:0;width:30px;height:30px;
+                                   border-radius:50%;background:#dc3545;border:2px solid white;
+                                   color:white;cursor:pointer;display:flex;align-items:center;
+                                   justify-content:center;">
+                        <i class="bi bi-camera-fill" style="font-size:12px;"></i>
+                    </button>
+                </div>
+
+                <h5 class="fw-bold mb-0">{{ perfil.nome_exibicao|default:user.username }}</h5>
+                <p class="text-muted small">{{ user.username }}</p>
+                <span class="badge bg-light text-dark border">
+                    {% if user.is_superuser %}Administrador{% else %}Operador{% endif %}
+                </span>
+
+                {# Form oculto para upload de foto #}
+                <form method="POST" enctype="multipart/form-data" id="form-foto">
+                    {% csrf_token %}
+                    <input type="hidden" name="acao" value="trocar_foto">
+                    <input type="file" name="foto" id="inp-foto" accept="image/*"
+                           style="display:none" onchange="this.form.submit()">
+                </form>
+
+                {% if perfil.foto %}
+                <form method="POST" class="mt-2">
+                    {% csrf_token %}
+                    <input type="hidden" name="acao" value="remover_foto">
+                    <button type="submit" class="btn btn-sm btn-outline-danger">
+                        <i class="bi bi-trash me-1"></i> Remover foto
+                    </button>
+                </form>
+                {% endif %}
+
+            </div>
+
+            {# Último acesso #}
+            <div class="card border-0 shadow-sm p-4 mt-4">
+                <h6 class="fw-bold small text-muted mb-3">INFORMAÇÕES DA CONTA</h6>
+                <div class="d-flex justify-content-between small mb-2">
+                    <span class="text-muted">Membro desde</span>
+                    <span>{{ user.date_joined|date:"d/m/Y" }}</span>
+                </div>
+                <div class="d-flex justify-content-between small">
+                    <span class="text-muted">Último acesso</span>
+                    <span>{{ user.last_login|date:"d/m/Y H:i" }}</span>
+                </div>
+            </div>
+        </div>
+
+        {# ===== COLUNA DIREITA — Formulários ===== #}
+        <div class="col-md-8">
+
+            {# Trocar nome de exibição #}
+            <div class="card border-0 shadow-sm p-4 mb-4">
+                <h5 class="fw-bold mb-4">
+                    <i class="bi bi-person me-2 text-danger"></i> Informações Pessoais
+                </h5>
+                <form method="POST">
+                    {% csrf_token %}
+                    <input type="hidden" name="acao" value="trocar_nome">
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold small text-muted">NOME DE EXIBIÇÃO</label>
+                            <input type="text" name="nome_exibicao"
+                                   class="form-control border-0 bg-light"
+                                   placeholder="Ex: João Silva"
+                                   value="{{ perfil.nome_exibicao|default:'' }}">
+                            <div class="form-text">Aparece no canto superior direito do sistema.</div>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold small text-muted">USUÁRIO (login)</label>
+                            <input type="text" class="form-control border-0 bg-light"
+                                   value="{{ user.username }}" disabled>
+                            <div class="form-text">O nome de usuário não pode ser alterado.</div>
+                        </div>
+                    </div>
+                    <hr class="my-4 opacity-25">
+                    <button type="submit" class="btn btn-danger px-4 fw-bold">
+                        <i class="bi bi-save me-1"></i> Salvar nome
+                    </button>
+                </form>
+            </div>
+
+            {# Trocar senha #}
+            <div class="card border-0 shadow-sm p-4 mb-4">
+                <h5 class="fw-bold mb-4">
+                    <i class="bi bi-lock me-2 text-danger"></i> Segurança
+                </h5>
+                <form method="POST">
+                    {% csrf_token %}
+                    <input type="hidden" name="acao" value="trocar_senha">
+                    <div class="row g-3">
+                        <div class="col-12">
+                            <label class="form-label fw-bold small text-muted">SENHA ATUAL</label>
+                            <input type="password" name="senha_atual"
+                                   class="form-control border-0 bg-light"
+                                   placeholder="••••••••" required>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold small text-muted">NOVA SENHA</label>
+                            <input type="password" name="nova_senha"
+                                   class="form-control border-0 bg-light"
+                                   placeholder="••••••••" minlength="6" required>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold small text-muted">CONFIRMAR NOVA SENHA</label>
+                            <input type="password" name="confirmar_senha"
+                                   class="form-control border-0 bg-light"
+                                   placeholder="••••••••" minlength="6" required>
+                        </div>
+                    </div>
+                    <hr class="my-4 opacity-25">
+                    <button type="submit" class="btn btn-danger px-4 fw-bold">
+                        <i class="bi bi-shield-lock me-1"></i> Alterar senha
+                    </button>
+                </form>
+            </div>
+
+            {# Histórico de logins #}
+            <div class="card border-0 shadow-sm p-4">
+                <h5 class="fw-bold mb-4">
+                    <i class="bi bi-clock-history me-2 text-danger"></i> Histórico de Acessos
+                </h5>
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Data / Hora</th>
+                                <th>IP</th>
+                                <th>Navegador</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for log in historico %}
+                            <tr>
+                                <td class="small">{{ log.data|date:"d/m/Y H:i" }}</td>
+                                <td class="small text-muted">{{ log.ip }}</td>
+                                <td class="small text-muted">{{ log.navegador|truncatechars:40 }}</td>
+                                <td>
+                                    {% if log.sucesso %}
+                                        <span class="badge bg-success">Sucesso</span>
+                                    {% else %}
+                                        <span class="badge bg-danger">Falhou</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% empty %}
+                            <tr>
+                                <td colspan="4" class="text-center text-muted py-4">
+                                    Nenhum acesso registrado ainda.
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+        </div>
+    </div>
+</div>
+{% endblock %}
