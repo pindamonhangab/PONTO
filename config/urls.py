@@ -2,10 +2,15 @@ from django.contrib import admin
 from django.urls import path
 from django.conf import settings
 from django.conf.urls.static import static
-from gestao import views
+from gestao import views, api_views
 
-urlpatterns = [
+urlpatterns = [ # type: ignore
+    path('api/login/',    api_views.api_login,    name='api_login'),
+    path('api/analisar/', api_views.api_analisar,  name='api_analisar'),       
+    path('api/historico/',api_views.api_historico, name='api_historico'),
+    path('api/config/',   api_views.api_config,    name='api_config'),
     path('admin/', admin.site.urls),
+    path('analisar/mascara/', views.analisar_com_mascara, name='analisar_com_mascara'),
 
     # Autenticação
     path('login/',  views.login_view,  name='login'),

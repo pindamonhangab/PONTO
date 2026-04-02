@@ -1,0 +1,702 @@
+{% extends 'gestao/base.html' %}
+{% block title %}Selecionar Área{% endblock %}
+
+{% block content %}
+<style>
+/* ================================================================
+   LAYOUT GERAL
+   ================================================================ */
+.sel-wrapper {
+    display: grid;
+    grid-template-columns: 220px 1fr 180px;
+    grid-template-rows: 56px 1fr 60px;
+    gap: 0;
+    height: calc(100vh - 64px);  /* topbar height */
+    overflow: hidden;
+}
+
+/* Toolbar superior */
+.sel-topbar {
+    grid-column: 1 / -1;
+    background: #212529;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 0 20px;
+    border-bottom: 1px solid #343a40;
+}
+.sel-topbar h5 { color: #fff; margin: 0; font-size: 15px; font-weight: 700; }
+.sel-topbar .badge-info {
+    background: rgba(255,255,255,0.08);
+    color: #adb5bd;
+    border-radius: 6px;
+    padding: 3px 10px;
+    font-size: 12px;
+}
+
+/* Painel esquerdo — ferramentas */
+.sel-tools {
+    background: #2b2d31;
+    padding: 16px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    overflow-y: auto;
+    border-right: 1px solid #343a40;
+}
+.tool-section { color: #6c757d; font-size: 10px; font-weight: 700;
+                letter-spacing: .08em; text-transform: uppercase;
+                margin: 8px 0 4px; padding: 0 4px; }
+.tool-btn {
+    display: flex; align-items: center; gap: 8px;
+    padding: 9px 10px; border-radius: 8px; border: none;
+    background: transparent; color: #adb5bd;
+    cursor: pointer; font-size: 13px; font-weight: 500;
+    transition: .15s; text-align: left; width: 100%;
+}
+.tool-btn:hover { background: rgba(255,255,255,0.07); color: #fff; }
+.tool-btn.active { background: rgba(220,53,69,0.2); color: #dc3545; }
+.tool-btn i { font-size: 16px; width: 18px; text-align: center; }
+
+.slider-label { color: #adb5bd; font-size: 11px; margin: 4px 0 2px; display: flex; justify-content: space-between; }
+input[type=range] { width: 100%; accent-color: #dc3545; }
+
+.color-preview {
+    width: 28px; height: 28px; border-radius: 6px;
+    border: 2px solid #495057; flex-shrink: 0;
+}
+
+/* Canvas area */
+.sel-canvas-area {
+    background: #1a1a2e;
+    display: flex; align-items: center; justify-content: center;
+    overflow: hidden; position: relative; cursor: crosshair;
+}
+.canvas-container {
+    position: relative;
+    display: inline-block;
+}
+#canvas-img   { display: block; user-select: none; }
+#canvas-mask  { position: absolute; top: 0; left: 0; opacity: 0.55; pointer-events: none; }
+#canvas-cursor{ position: absolute; top: 0; left: 0; pointer-events: none; }
+
+/* Painel direito — preview */
+.sel-preview {
+    background: #2b2d31;
+    padding: 12px;
+    display: flex; flex-direction: column; gap: 8px;
+    border-left: 1px solid #343a40;
+    overflow-y: auto;
+}
+.sel-preview h6 { color: #adb5bd; font-size: 10px; font-weight: 700;
+                   text-transform: uppercase; letter-spacing: .08em; margin: 0; }
+#preview-canvas {
+    width: 100%; border-radius: 8px;
+    background: repeating-conic-gradient(#3a3a3a 0% 25%, #2b2b2b 0% 50%)
+                0 0 / 12px 12px;
+}
+.stat-row { display: flex; justify-content: space-between; align-items: center; }
+.stat-val { color: #fff; font-weight: 700; font-size: 13px; }
+.stat-lbl { color: #6c757d; font-size: 11px; }
+
+/* Barra inferior */
+.sel-footer {
+    grid-column: 1 / -1;
+    background: #212529;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 20px;
+    border-top: 1px solid #343a40;
+}
+.sel-footer .hint { color: #6c757d; font-size: 12px; }
+
+/* Botões footer */
+.btn-cancel { background: transparent; border: 1px solid #495057; color: #adb5bd;
+              border-radius: 8px; padding: 8px 18px; cursor: pointer; font-size: 13px; }
+.btn-cancel:hover { background: rgba(255,255,255,0.05); }
+.btn-confirm { background: #dc3545; border: none; color: #fff;
+               border-radius: 8px; padding: 8px 24px; cursor: pointer;
+               font-size: 13px; font-weight: 700; }
+.btn-confirm:hover { background: #c82333; }
+.btn-confirm:disabled { opacity: .5; cursor: not-allowed; }
+
+/* Loading overlay */
+#loading-overlay {
+    display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.7);
+    z-index: 9999; align-items: center; justify-content: center; flex-direction: column;
+    color: #fff;
+}
+#loading-overlay.show { display: flex; }
+</style>
+
+<div class="sel-wrapper">
+
+    <!-- ===== TOP BAR ===== -->
+    <div class="sel-topbar">
+        <h5><i class="bi bi-magic me-2 text-danger"></i>Seleção Interativa</h5>
+        <span class="badge-info">
+            <i class="bi bi-image me-1"></i>{{ matriz.descricao }}
+            — {{ matriz.largura_mm }}×{{ matriz.altura_mm }}mm
+        </span>
+        <div class="ms-auto d-flex gap-2">
+            <span class="badge-info" id="info-selecionado">0% selecionado</span>
+        </div>
+    </div>
+
+    <!-- ===== PAINEL ESQUERDO — FERRAMENTAS ===== -->
+    <div class="sel-tools">
+
+        <div class="tool-section">Ferramentas</div>
+
+        <button class="tool-btn active" id="btn-wand" onclick="setFerramenta('wand')" title="Varinha Mágica — clique para selecionar área de cor similar">
+            <i class="bi bi-magic"></i> Varinha Mágica
+        </button>
+        <button class="tool-btn" id="btn-brush" onclick="setFerramenta('brush')" title="Pincel — arraste para adicionar à seleção">
+            <i class="bi bi-brush"></i> Pincel +
+        </button>
+        <button class="tool-btn" id="btn-eraser" onclick="setFerramenta('eraser')" title="Borracha — arraste para remover da seleção">
+            <i class="bi bi-eraser"></i> Borracha −
+        </button>
+
+        <div class="tool-section">Varinha</div>
+        <div>
+            <div class="slider-label">
+                <span>Tolerância</span>
+                <span id="tol-val" style="color:#fff;font-weight:700;">30</span>
+            </div>
+            <input type="range" id="tolerancia" min="5" max="120" value="30"
+                   oninput="document.getElementById('tol-val').textContent=this.value">
+        </div>
+        <label style="color:#adb5bd;font-size:12px;display:flex;align-items:center;gap:6px;cursor:pointer;">
+            <input type="checkbox" id="chk-contiguous" checked style="accent-color:#dc3545;">
+            Apenas conectados
+        </label>
+
+        <div class="tool-section">Pincel / Borracha</div>
+        <div>
+            <div class="slider-label">
+                <span>Tamanho</span>
+                <span id="brush-val" style="color:#fff;font-weight:700;">20px</span>
+            </div>
+            <input type="range" id="brush-size" min="4" max="80" value="20"
+                   oninput="document.getElementById('brush-val').textContent=this.value+'px'; updateCursorSize()">
+        </div>
+
+        <div class="tool-section">Seleção</div>
+        <button class="tool-btn" onclick="selecionarTudo()">
+            <i class="bi bi-bounding-box"></i> Selecionar tudo
+        </button>
+        <button class="tool-btn" onclick="inverterSelecao()">
+            <i class="bi bi-arrow-left-right"></i> Inverter
+        </button>
+        <button class="tool-btn" onclick="limparSelecao()">
+            <i class="bi bi-x-circle"></i> Limpar
+        </button>
+        <button class="tool-btn" onclick="autoDetectar()" title="Remove fundo automaticamente por flood fill das bordas">
+            <i class="bi bi-stars"></i> Auto-detectar fundo
+        </button>
+
+        <div class="tool-section">Modo clique</div>
+        <label style="color:#adb5bd;font-size:12px;display:flex;align-items:center;gap:6px;cursor:pointer;">
+            <input type="radio" name="modo" value="add" checked style="accent-color:#dc3545;"> Adicionar
+        </label>
+        <label style="color:#adb5bd;font-size:12px;display:flex;align-items:center;gap:6px;cursor:pointer;">
+            <input type="radio" name="modo" value="sub" style="accent-color:#dc3545;"> Remover
+        </label>
+
+    </div>
+
+    <!-- ===== CANVAS AREA ===== -->
+    <div class="sel-canvas-area" id="canvas-area">
+        <div class="canvas-container" id="canvas-container">
+            <canvas id="canvas-img"></canvas>
+            <canvas id="canvas-mask"></canvas>
+            <canvas id="canvas-cursor"></canvas>
+        </div>
+    </div>
+
+    <!-- ===== PAINEL DIREITO — PREVIEW ===== -->
+    <div class="sel-preview">
+        <h6>Preview bordado</h6>
+        <canvas id="preview-canvas" height="160"></canvas>
+
+        <div style="margin-top:8px;">
+            <div class="stat-row">
+                <span class="stat-lbl">Área selecionada</span>
+                <span class="stat-val" id="stat-area">—</span>
+            </div>
+            <div class="stat-row">
+                <span class="stat-lbl">Cobertura</span>
+                <span class="stat-val" id="stat-cob">—</span>
+            </div>
+            <div class="stat-row">
+                <span class="stat-lbl">Pontos est.</span>
+                <span class="stat-val" id="stat-pts" style="color:#dc3545;">—</span>
+            </div>
+            <div class="stat-row">
+                <span class="stat-lbl">Custo est.</span>
+                <span class="stat-val" id="stat-custo" style="color:#dc3545;">—</span>
+            </div>
+        </div>
+
+        <hr style="border-color:#343a40;margin:4px 0;">
+        <h6>Legenda</h6>
+        <div style="display:flex;align-items:center;gap:6px;font-size:11px;color:#adb5bd;">
+            <div style="width:14px;height:14px;background:rgba(220,53,69,0.6);border-radius:3px;flex-shrink:0;"></div>
+            Será bordado
+        </div>
+        <div style="display:flex;align-items:center;gap:6px;font-size:11px;color:#adb5bd;">
+            <div style="width:14px;height:14px;background:transparent;border:1px solid #495057;border-radius:3px;flex-shrink:0;"></div>
+            Ignorado (fundo)
+        </div>
+    </div>
+
+    <!-- ===== FOOTER ===== -->
+    <div class="sel-footer">
+        <span class="hint">
+            <i class="bi bi-info-circle me-1"></i>
+            Varinha: clique para selecionar · Pincel: arraste · Shift+clique = adicionar · Alt+clique = remover
+        </span>
+        <div class="d-flex gap-2">
+            <button class="btn-cancel" onclick="window.history.back()">Cancelar</button>
+            <button class="btn-confirm" id="btn-confirmar" onclick="confirmarSelecao()" disabled>
+                <i class="bi bi-check-lg me-1"></i> Analisar Seleção
+            </button>
+        </div>
+    </div>
+
+</div>
+
+<!-- Loading overlay -->
+<div id="loading-overlay">
+    <div class="spinner-border text-danger mb-3" style="width:3rem;height:3rem;"></div>
+    <div style="font-size:15px;font-weight:600;">Analisando seleção...</div>
+    <div style="color:#adb5bd;font-size:13px;margin-top:4px;">Calculando pontos, cores e custo</div>
+</div>
+
+<!-- Form oculto para submeter a máscara -->
+<form id="form-mascara" method="POST" action="{% url 'analisar_com_mascara' %}">
+    {% csrf_token %}
+    <input type="hidden" name="matriz_id"    value="{{ matriz.id }}">
+    <input type="hidden" name="mascara_b64"  id="inp-mascara">
+    <input type="hidden" name="produto_id"   value="{{ produto_id|default:'' }}">
+</form>
+
+<script>
+// ============================================================
+// ESTADO GLOBAL
+// ============================================================
+const IMG_URL     = "{{ imagem_url }}";
+const LW_MM = {{ matriz.largura_mm|default:0 }} || {{ matriz.largura_desejada_mm|default:0 }};
+const LH_MM = {{ matriz.altura_mm|default:0 }} || {{ matriz.altura_desejada_mm|default:0 }};
+const VAL_MIL     = {{ valor_por_mil }};
+const AREA_TOTAL  = LW_MM * LH_MM;
+
+let imgOriginal   = null;   // ImageData original
+let imgW = 0, imgH = 0;     // dimensões da imagem
+let mascara       = null;   // Uint8Array: 255=selecionado, 0=não
+let ferramenta    = 'wand';
+let desenhando    = false;
+
+const cvImg    = document.getElementById('canvas-img');
+const cvMask   = document.getElementById('canvas-mask');
+const cvCursor = document.getElementById('canvas-cursor');
+const cvPreview= document.getElementById('preview-canvas');
+const ctxImg   = cvImg.getContext('2d');
+const ctxMask  = cvMask.getContext('2d');
+const ctxCur   = cvCursor.getContext('2d');
+const ctxPrev  = cvPreview.getContext('2d');
+
+// ============================================================
+// INICIALIZAÇÃO
+// ============================================================
+const img = new Image();
+img.crossOrigin = 'anonymous';
+img.onload = () => {
+    // Calcula escala para caber na área
+    const area      = document.getElementById('canvas-area');
+    const maxW      = area.clientWidth  - 40;
+    const maxH      = area.clientHeight - 40;
+    const escala    = Math.min(maxW / img.width, maxH / img.height, 1);
+    imgW            = Math.round(img.width  * escala);
+    imgH            = Math.round(img.height * escala);
+
+    [cvImg, cvMask, cvCursor].forEach(c => {
+        c.width = imgW; c.height = imgH;
+    });
+
+    ctxImg.drawImage(img, 0, 0, imgW, imgH);
+    imgOriginal = ctxImg.getImageData(0, 0, imgW, imgH);
+    mascara     = new Uint8Array(imgW * imgH);  // tudo = 0 (não selecionado)
+
+    cvPreview.width = imgW;
+
+    // Auto-detecta fundo ao iniciar
+    autoDetectar();
+    updateCursorSize();
+    bindEvents();
+};
+img.src = IMG_URL;
+
+// ============================================================
+// FERRAMENTAS
+// ============================================================
+function setFerramenta(f) {
+    ferramenta = f;
+    document.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('active'));
+    document.getElementById('btn-' + f)?.classList.add('active');
+    cvImg.style.cursor = (f === 'wand') ? 'crosshair' : 'none';
+}
+
+function getModo(e) {
+    if (e.shiftKey) return 'add';
+    if (e.altKey)   return 'sub';
+    return document.querySelector('input[name=modo]:checked').value;
+}
+
+// ============================================================
+// VARINHA MÁGICA — flood fill com tolerância perceptual
+// ============================================================
+function wandClick(x, y, modo) {
+    const tol  = parseInt(document.getElementById('tolerancia').value);
+    const cont = document.getElementById('chk-contiguous').checked;
+    const data = imgOriginal.data;
+    const idx  = (y * imgW + x) * 4;
+    const tr   = data[idx], tg = data[idx+1], tb = data[idx+2];
+
+    const novoMask = new Uint8Array(mascara);
+    const val      = (modo === 'sub') ? 0 : 255;
+
+    if (cont) {
+        // Flood fill BFS
+        const visitado = new Uint8Array(imgW * imgH);
+        const fila     = [[x, y]];
+        visitado[y * imgW + x] = 1;
+
+        while (fila.length > 0) {
+            const [cx, cy] = fila.shift();
+            novoMask[cy * imgW + cx] = val;
+
+            const vizinhos = [[cx-1,cy],[cx+1,cy],[cx,cy-1],[cx,cy+1]];
+            for (const [nx, ny] of vizinhos) {
+                if (nx < 0 || nx >= imgW || ny < 0 || ny >= imgH) continue;
+                if (visitado[ny * imgW + nx]) continue;
+                const ni = (ny * imgW + nx) * 4;
+                if (distPerceptual(data[ni], data[ni+1], data[ni+2], tr, tg, tb) <= tol) {
+                    visitado[ny * imgW + nx] = 1;
+                    fila.push([nx, ny]);
+                }
+            }
+        }
+    } else {
+        // Seleciona todos os pixels similares (não conectados)
+        for (let i = 0; i < imgW * imgH; i++) {
+            const pi = i * 4;
+            if (distPerceptual(data[pi], data[pi+1], data[pi+2], tr, tg, tb) <= tol)
+                novoMask[i] = val;
+        }
+    }
+
+    mascara = novoMask;
+}
+
+function distPerceptual(r1,g1,b1,r2,g2,b2) {
+    return Math.sqrt(
+        ((r1-r2)*0.299)**2 +
+        ((g1-g2)*0.587)**2 +
+        ((b1-b2)*0.114)**2
+    );
+}
+
+// ============================================================
+// AUTO-DETECTAR FUNDO (flood fill das 4 bordas)
+// ============================================================
+function autoDetectar() {
+    if (!imgOriginal) return;
+    const data = imgOriginal.data;
+    const tol  = 30;
+
+    // Detecta cor dominante nas bordas
+    const bordas = [];
+    for (let x = 0; x < imgW; x++) {
+        bordas.push([x, 0]); bordas.push([x, imgH-1]);
+    }
+    for (let y = 0; y < imgH; y++) {
+        bordas.push([0, y]); bordas.push([imgW-1, y]);
+    }
+
+    // Cor mais comum nas bordas
+    const freq = {};
+    for (const [x, y] of bordas) {
+        const i = (y * imgW + x) * 4;
+        const k = `${Math.round(data[i]/15)*15},${Math.round(data[i+1]/15)*15},${Math.round(data[i+2]/15)*15}`;
+        freq[k] = (freq[k] || 0) + 1;
+    }
+    const [br, bg, bb] = Object.entries(freq)
+        .sort((a,b) => b[1]-a[1])[0][0].split(',').map(Number);
+
+    // Flood fill das 4 bordas
+    const novoMask  = new Uint8Array(imgW * imgH).fill(255); // tudo selecionado
+    const visitado  = new Uint8Array(imgW * imgH);
+    const fila      = [];
+
+    const tryAdd = (x, y) => {
+        if (x < 0 || x >= imgW || y < 0 || y >= imgH) return;
+        if (visitado[y*imgW+x]) return;
+        const i = (y*imgW+x)*4;
+        if (distPerceptual(data[i],data[i+1],data[i+2],br,bg,bb) <= tol) {
+            visitado[y*imgW+x] = 1;
+            fila.push([x, y]);
+        }
+    };
+
+    for (let x = 0; x < imgW; x++) { tryAdd(x, 0); tryAdd(x, imgH-1); }
+    for (let y = 0; y < imgH; y++) { tryAdd(0, y); tryAdd(imgW-1, y); }
+
+    while (fila.length > 0) {
+        const [cx, cy] = fila.shift();
+        novoMask[cy*imgW+cx] = 0;  // fundo = não selecionado
+        tryAdd(cx-1,cy); tryAdd(cx+1,cy);
+        tryAdd(cx,cy-1); tryAdd(cx,cy+1);
+    }
+
+    mascara = novoMask;
+    renderMask();
+    atualizarStats();
+}
+
+// ============================================================
+// PINCEL / BORRACHA
+// ============================================================
+function pincelAplicar(x, y, val) {
+    const r = parseInt(document.getElementById('brush-size').value) / 2;
+    const r2 = r * r;
+    const x0 = Math.max(0, Math.floor(x-r));
+    const x1 = Math.min(imgW-1, Math.ceil(x+r));
+    const y0 = Math.max(0, Math.floor(y-r));
+    const y1 = Math.min(imgH-1, Math.ceil(y+r));
+    for (let py = y0; py <= y1; py++) {
+        for (let px = x0; px <= x1; px++) {
+            if ((px-x)**2 + (py-y)**2 <= r2)
+                mascara[py*imgW+px] = val;
+        }
+    }
+}
+
+// ============================================================
+// RENDER DA MÁSCARA
+// ============================================================
+function renderMask() {
+    const imgData = ctxMask.createImageData(imgW, imgH);
+    const d       = imgData.data;
+    const orig    = imgOriginal.data;
+
+    for (let i = 0; i < imgW * imgH; i++) {
+        const sel = mascara[i] > 0;
+        if (sel) {
+            // Tinge de vermelho semitransparente
+            d[i*4]   = 220;
+            d[i*4+1] = 53;
+            d[i*4+2] = 69;
+            d[i*4+3] = 100;
+        } else {
+            // Escurece o fundo
+            d[i*4]   = 0;
+            d[i*4+1] = 0;
+            d[i*4+2] = 0;
+            d[i*4+3] = 120;
+        }
+    }
+    ctxMask.putImageData(imgData, 0, 0);
+    atualizarPreview();
+}
+
+// ============================================================
+// PREVIEW
+// ============================================================
+function atualizarPreview() {
+    cvPreview.height = Math.round(imgH * cvPreview.width / imgW);
+    const scaleX = cvPreview.width  / imgW;
+    const scaleY = cvPreview.height / imgH;
+
+    const imgData = ctxPrev.createImageData(cvPreview.width, cvPreview.height);
+    const d       = imgData.data;
+    const orig    = imgOriginal.data;
+
+    for (let py = 0; py < cvPreview.height; py++) {
+        for (let px = 0; px < cvPreview.width; px++) {
+            const sx = Math.floor(px / scaleX);
+            const sy = Math.floor(py / scaleY);
+            const si = (sy * imgW + sx);
+            const di = (py * cvPreview.width + px) * 4;
+
+            if (mascara[si] > 0) {
+                const oi = si * 4;
+                d[di]   = orig[oi];
+                d[di+1] = orig[oi+1];
+                d[di+2] = orig[oi+2];
+                d[di+3] = 255;
+            } else {
+                d[di] = d[di+1] = d[di+2] = 0;
+                d[di+3] = 0;
+            }
+        }
+    }
+    ctxPrev.putImageData(imgData, 0, 0);
+}
+
+// ============================================================
+// STATS
+// ============================================================
+function atualizarStats() {
+    const totalPx   = imgW * imgH;
+    const selPx     = mascara.reduce((a,v) => a + (v>0?1:0), 0);
+    const cobPct    = selPx / totalPx;
+    const areaMm2   = AREA_TOTAL * cobPct;
+    const pontos    = Math.round(areaMm2 * 2.8 * 1.15);
+    const custo     = (pontos / 1000 * VAL_MIL).toFixed(2);
+
+    document.getElementById('stat-area').textContent = areaMm2.toFixed(0) + ' mm²';
+    document.getElementById('stat-cob').textContent  = (cobPct*100).toFixed(1) + '%';
+    document.getElementById('stat-pts').textContent  = pontos.toLocaleString('pt-BR');
+    document.getElementById('stat-custo').textContent= 'R$ ' + custo;
+    document.getElementById('info-selecionado').textContent =
+        (cobPct*100).toFixed(1) + '% selecionado';
+
+    document.getElementById('btn-confirmar').disabled = selPx === 0;
+}
+
+// ============================================================
+// SELEÇÕES GLOBAIS
+// ============================================================
+function selecionarTudo()  { mascara.fill(255); renderMask(); atualizarStats(); }
+function limparSelecao()   { mascara.fill(0);   renderMask(); atualizarStats(); }
+function inverterSelecao() {
+    for (let i = 0; i < mascara.length; i++)
+        mascara[i] = mascara[i] > 0 ? 0 : 255;
+    renderMask(); atualizarStats();
+}
+
+// ============================================================
+// CURSOR PERSONALIZADO (pincel/borracha)
+// ============================================================
+function updateCursorSize() {
+    const r = parseInt(document.getElementById('brush-size').value);
+    ctxCur.clearRect(0, 0, cvCursor.width, cvCursor.height);
+    if (ferramenta !== 'wand') {
+        // Pré-desenha um círculo para o cursor
+        cvCursor.dataset.r = r;
+    }
+}
+
+function desenharCursor(x, y) {
+    ctxCur.clearRect(0, 0, cvCursor.width, cvCursor.height);
+    if (ferramenta === 'wand') return;
+    const r = parseInt(document.getElementById('brush-size').value) / 2;
+    ctxCur.beginPath();
+    ctxCur.arc(x, y, r, 0, Math.PI*2);
+    ctxCur.strokeStyle = ferramenta === 'eraser' ? '#fff' : '#dc3545';
+    ctxCur.lineWidth   = 1.5;
+    ctxCur.stroke();
+}
+
+// ============================================================
+// EVENTOS
+// ============================================================
+function bindEvents() {
+    const area = document.getElementById('canvas-area');
+
+    function getPos(e) {
+        const rect = cvImg.getBoundingClientRect();
+        return {
+            x: Math.floor((e.clientX - rect.left)  * imgW / rect.width),
+            y: Math.floor((e.clientY - rect.top)   * imgH / rect.height),
+        };
+    }
+
+    cvImg.addEventListener('mousedown', e => {
+        const {x, y} = getPos(e);
+        desenhando = true;
+
+        if (ferramenta === 'wand') {
+            wandClick(x, y, getModo(e));
+            renderMask();
+            atualizarStats();
+        } else {
+            const val = ferramenta === 'eraser' ? 0 : 255;
+            pincelAplicar(x, y, val);
+            renderMask();
+            atualizarStats();
+        }
+    });
+
+    cvImg.addEventListener('mousemove', e => {
+        const {x, y} = getPos(e);
+        desenharCursor(x, y);
+
+        if (!desenhando || ferramenta === 'wand') return;
+        const val = ferramenta === 'eraser' ? 0 : 255;
+        pincelAplicar(x, y, val);
+        renderMask();
+        atualizarStats();
+    });
+
+    cvImg.addEventListener('mouseup',    () => { desenhando = false; });
+    cvImg.addEventListener('mouseleave', () => {
+        desenhando = false;
+        ctxCur.clearRect(0, 0, cvCursor.width, cvCursor.height);
+    });
+
+    // Touch events para tablet
+    cvImg.addEventListener('touchstart', e => {
+        e.preventDefault();
+        const t = e.touches[0];
+        const {x,y} = getPos(t);
+        desenhando = true;
+        if (ferramenta === 'wand') {
+            wandClick(x, y, 'add');
+        } else {
+            pincelAplicar(x, y, ferramenta === 'eraser' ? 0 : 255);
+        }
+        renderMask(); atualizarStats();
+    }, {passive:false});
+
+    cvImg.addEventListener('touchmove', e => {
+        e.preventDefault();
+        if (!desenhando || ferramenta === 'wand') return;
+        const {x,y} = getPos(e.touches[0]);
+        pincelAplicar(x, y, ferramenta === 'eraser' ? 0 : 255);
+        renderMask(); atualizarStats();
+    }, {passive:false});
+
+    cvImg.addEventListener('touchend', () => { desenhando = false; });
+}
+
+// ============================================================
+// CONFIRMAR SELEÇÃO — exporta máscara e envia ao Django
+// ============================================================
+function confirmarSelecao() {
+    // Gera PNG da máscara (branco=selecionado, preto=não)
+    const tmpCanvas = document.createElement('canvas');
+    tmpCanvas.width  = imgW;
+    tmpCanvas.height = imgH;
+    const tmpCtx = tmpCanvas.getContext('2d');
+    const imgData = tmpCtx.createImageData(imgW, imgH);
+    const d = imgData.data;
+
+    for (let i = 0; i < imgW * imgH; i++) {
+        const val = mascara[i] > 0 ? 255 : 0;
+        d[i*4]   = val;
+        d[i*4+1] = val;
+        d[i*4+2] = val;
+        d[i*4+3] = 255;
+    }
+    tmpCtx.putImageData(imgData, 0, 0);
+
+    const b64 = tmpCanvas.toDataURL('image/png');
+    document.getElementById('inp-mascara').value = b64;
+
+    document.getElementById('loading-overlay').classList.add('show');
+    document.getElementById('form-mascara').submit();
+}
+</script>
+{% endblock %}

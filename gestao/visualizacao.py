@@ -333,3 +333,228 @@ def gerar_visualizacoes(img_pil, analise):
         print(f"Erro camadas: {e}")
 
     return resultado
+
+def gerar_visualizacoes_com_mascara(img_pil, mascara_pil, analise):
+    """
+    Gera visualizações usando a máscara de seleção manual.
+    Retorna o mesmo dict que gerar_visualizacoes().
+    """
+    import numpy as np
+    from PIL import Image
+
+    img_rgba = img_pil.convert('RGBA')
+    w, h     = img_rgba.size
+
+    mascara_resize = mascara_pil.resize((w, h), Image.NEAREST)
+    arr_mask       = np.array(mascara_resize) > 128
+    arr_orig       = np.array(img_rgba)
+
+    resultado = {}
+
+    # 1. Imagem processada — original com área não selecionada em xadrez
+    try:
+        saida = arr_orig.copy()
+        saida[~arr_mask, 3] = 0  # área não selecionada = transparente
+
+        img_sem_fundo = Image.fromarray(saida.astype(np.uint8), 'RGBA')
+
+        # Fundo xadrez
+        tam = 20
+        xadrez = Image.new('RGBA', (w, h), (240, 240, 240, 255))
+        draw   = __import__('PIL.ImageDraw', fromlist=['ImageDraw']).ImageDraw.Draw(xadrez)
+        for y in range(0, h, tam):
+            for x in range(0, w, tam):
+                if (x//tam + y//tam) % 2 == 0:
+                    draw.rectangle([x, y, x+tam, y+tam], fill=(200, 200, 200, 255))
+        xadrez.paste(img_sem_fundo, mask=img_sem_fundo.split()[3])
+        img_proc = xadrez.convert('RGB')
+        img_proc.thumbnail((400, 400), Image.LANCZOS)
+        resultado['img_processada'] = _to_base64(img_proc)
+    except Exception as e:
+        resultado['img_processada'] = None
+        print(f"Erro img_processada mascara: {e}")
+
+    # 2. Comparação: original | selecionado
+    try:
+        resultado['img_comparacao'] = _gerar_comparacao_mascara(arr_orig, arr_mask, w, h)
+    except Exception as e:
+        resultado['img_comparacao'] = None
+        print(f"Erro comparacao mascara: {e}")
+
+    # 3. Camadas por cor
+    try:
+        resultado['camadas'] = gerar_camadas_cores(
+            img_pil,
+            analise.get('detalhes_cores', []),
+            rgb_fundo=None,
+            mascara_extra=arr_mask,
+        )
+    except Exception as e:
+        resultado['camadas'] = []
+        print(f"Erro camadas mascara: {e}")
+
+    return resultado
+
+
+def _gerar_comparacao_mascara(arr_orig, arr_mask, w, h, tamanho=(600, 300)):
+    """Side-by-side: original | selecionado com máscara."""
+    from PIL import Image, ImageDraw
+    import numpy as np
+
+    w_metade = tamanho[0] // 2
+    h_total  = tamanho[1]
+
+    # Imagem esquerda: original
+    img_esq = Image.fromarray(arr_orig, 'RGBA').convert('RGB')
+
+    # Imagem direita: área selecionada em cor, resto em cinza
+    arr_dir = arr_orig.copy()
+    arr_dir[~arr_mask, 0] = 220
+    arr_dir[~arr_mask, 1] = 220
+    arr_dir[~arr_mask, 2] = 220
+    arr_dir[:, :, 3]      = 255
+    img_dir = Image.fromarray(arr_dir.astype(np.uint8), 'RGBA').convert('RGB')
+
+    canvas = Image.new('RGB', tamanho, (255, 255, 255))
+    draw   = ImageDraw.Draw(canvas)
+    draw.rectangle([0, 0, w_metade, 22], fill=(80, 80, 80))
+    draw.rectangle([w_metade, 0, tamanho[0], 22], fill=(220, 53, 69))
+    draw.text((10, 4), "ORIGINAL", fill=(255,255,255))
+    draw.text((w_metade+10, 4), "SELEÇÃO PARA BORDAR", fill=(255,255,255))
+    draw.line([(w_metade, 0), (w_metade, h_total)], fill=(200,200,200), width=2)
+
+    def colar(canvas, img, x_off):
+        img_c = img.copy()
+        img_c.thumbnail((w_metade-10, h_total-30), Image.LANCZOS)
+        px = x_off + (w_metade-10 - img_c.width) // 2
+        py = 24 + (h_total-30 - img_c.height) // 2
+        canvas.paste(img_c, (px, py))
+
+    colar(canvas, img_esq, 0)
+    colar(canvas, img_dir, w_metade)
+    return _to_base64(canvas)
+
+
+def gerar_visualizacoes_com_mascara(img_pil, mascara_pil, analise):
+    """
+    Gera visualizações usando a máscara manual do canvas.
+    Retorna dict compatível com o template resultado.html.
+    """
+    import numpy as np
+    from PIL import Image, ImageDraw
+
+    img_rgba = img_pil.convert('RGBA')
+    w, h     = img_rgba.size
+
+    mascara_resize = mascara_pil.resize((w, h), Image.NEAREST)
+    arr_mask       = np.array(mascara_resize) > 128
+    arr_orig       = np.array(img_rgba)
+
+    resultado = {}
+
+    # ------------------------------------------------------------------
+    # 1. Imagem processada (selecionado em cor, resto em xadrez)
+    # ------------------------------------------------------------------
+    try:
+        saida = arr_orig.copy()
+        saida[~arr_mask, 3] = 0
+
+        img_sem_fundo = Image.fromarray(saida.astype(np.uint8), 'RGBA')
+        tam   = 20
+        xadrez = Image.new('RGBA', (w, h), (240, 240, 240, 255))
+        draw   = ImageDraw.Draw(xadrez)
+        for y in range(0, h, tam):
+            for x in range(0, w, tam):
+                if (x//tam + y//tam) % 2 == 0:
+                    draw.rectangle([x, y, x+tam, y+tam], fill=(200, 200, 200, 255))
+        xadrez.paste(img_sem_fundo, mask=img_sem_fundo.split()[3])
+        img_proc = xadrez.convert('RGB')
+        img_proc.thumbnail((400, 400), Image.LANCZOS)
+        resultado['img_processada'] = _to_base64(img_proc)
+    except Exception as e:
+        resultado['img_processada'] = None
+        print(f"[vis_mascara] img_processada: {e}")
+
+    # ------------------------------------------------------------------
+    # 2. Comparação original | selecionado
+    # ------------------------------------------------------------------
+    try:
+        w2, h2 = 600, 300
+        wm = w2 // 2
+
+        img_esq = img_rgba.convert('RGB')
+
+        arr_dir        = arr_orig.copy()
+        arr_dir[~arr_mask, 0] = 220
+        arr_dir[~arr_mask, 1] = 220
+        arr_dir[~arr_mask, 2] = 220
+        arr_dir[:, :, 3]      = 255
+        img_dir = Image.fromarray(arr_dir.astype(np.uint8), 'RGBA').convert('RGB')
+
+        canvas = Image.new('RGB', (w2, h2), (255, 255, 255))
+        draw   = ImageDraw.Draw(canvas)
+        draw.rectangle([0, 0, wm, 22], fill=(80, 80, 80))
+        draw.rectangle([wm, 0, w2, 22], fill=(220, 53, 69))
+        draw.text((10, 4),    "ORIGINAL",            fill=(255, 255, 255))
+        draw.text((wm+10, 4), "SELEÇÃO PARA BORDAR", fill=(255, 255, 255))
+        draw.line([(wm, 0), (wm, h2)], fill=(200, 200, 200), width=2)
+
+        def colar(img_src, x_off):
+            c = img_src.copy()
+            c.thumbnail((wm-10, h2-30), Image.LANCZOS)
+            px = x_off + (wm-10 - c.width) // 2
+            py = 24 + (h2-30 - c.height) // 2
+            canvas.paste(c, (px, py))
+
+        colar(img_esq, 0)
+        colar(img_dir, wm)
+        resultado['img_comparacao'] = _to_base64(canvas)
+    except Exception as e:
+        resultado['img_comparacao'] = None
+        print(f"[vis_mascara] comparacao: {e}")
+
+    # ------------------------------------------------------------------
+    # 3. Camadas por cor (usa gerar_camadas_cores normal com mascara extra)
+    # ------------------------------------------------------------------
+    try:
+        detalhes = analise.get('detalhes_cores', [])
+        camadas  = []
+        total_pts = analise.get('total_pontos', 1)
+
+        for d in detalhes:
+            rgb  = d['rgb']
+            nome = d['nome']
+
+            # Pixels desta cor dentro da máscara
+            dist_map = (
+                abs(arr_orig[:,:,0].astype(np.int32) - rgb[0]) * 0.299 +
+                abs(arr_orig[:,:,1].astype(np.int32) - rgb[1]) * 0.587 +
+                abs(arr_orig[:,:,2].astype(np.int32) - rgb[2]) * 0.114
+            )
+            mascara_cor = (dist_map < 45) & arr_mask
+
+            camada_arr = np.ones((h, w, 3), dtype=np.uint8) * 255
+            camada_arr[mascara_cor] = rgb[:3]
+            img_camada = Image.fromarray(camada_arr, 'RGB')
+            img_camada.thumbnail((200, 200), Image.LANCZOS)
+
+            hex_cor = '#{:02X}{:02X}{:02X}'.format(*rgb[:3])
+            pct     = d['pontos'] / total_pts * 100 if total_pts else 0
+
+            camadas.append({
+                'nome':   nome,
+                'hex':    hex_cor,
+                'b64':    _to_base64(img_camada),
+                'pontos': d['pontos'],
+                'pct':    round(pct, 1),
+                'tipo':   d.get('tipo_ponto', '—'),
+                'area':   d.get('area_mm2', 0),
+            })
+
+        resultado['camadas'] = camadas
+    except Exception as e:
+        resultado['camadas'] = []
+        print(f"[vis_mascara] camadas: {e}")
+
+    return resultado
+

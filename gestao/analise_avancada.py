@@ -1,26 +1,23 @@
 """
-Análise avançada de imagem para bordado — calibrada com dados reais do Wilcom.
+analise_avancada.py — Cálculo de pontos de bordado
 
-Calibração baseada em comparação direta:
-  Logo Medicina Unila 80.5×67.6mm:
-    PONTO antigo:  49.615 pts (5.5 pts/mm² base) → ERRADO
-    Wilcom real:   11.290 pts                     → CORRETO
-    Densidade real efetiva: ~2.5 pts/mm²
+Fórmula:
+    pontos = área_total_mm² × cobertura × densidade_efetiva
 
-Problema do algoritmo anterior:
-  - Usava 5.5 pts/mm² (densidade de impressão, não de bordado)
-  - Bordado profissional usa 1.5–3.5 pts/mm² dependendo do tipo
-  - Wilcom aplica densidades diferentes por tipo de stitch:
-      Tatami fill:   2.0–2.8 pts/mm²
-      Satin stitch:  3.0–4.5 pts/mm² (mas só nas bordas, área pequena)
-      Running stitch: 0.5–1.0 pts/mm²
-      Underlay:      +15–25% sobre o fill
+Densidades efetivas POR TIPO (calibradas com Wilcom real, modo Médio 5.5):
+    icone_simples : 2.50 pts/mm²
+    logo          : 2.59 pts/mm²  ← Bandeiras Brasil/Paraguai reais
+    brasao        : 3.24 pts/mm²  ← Medicina Unila real
+    texto         : 3.50 pts/mm²
 
-Novos parâmetros calibrados:
-  - Densidade base tatami:  2.4 pts/mm²  (corrigido de 5.5)
-  - Densidade satin borda:  3.5 pts/mm²  (só para regiões de contorno)
-  - Underlay conservador:   1.15–1.20×   (não 1.25×)
-  - Cobertura real:         só pixels efetivamente stitchados
+Slider de densidade multiplica a base:
+    4.0  Leve   → 0.65×
+    5.5  Médio  → 1.00×  (base, calibrado)
+    7.5  Denso  → 1.45×
+    9.0  Pesado → 1.90×
+
+IMPORTANTE: fator_cobertura é sempre FRAÇÃO 0.0–1.0 (ex: 0.64 = 64%).
+Nunca armazenar como percentagem (64.0) — sempre multiplicar por 100 na exibição.
 """
 
 import math
@@ -30,18 +27,22 @@ from collections import Counter
 
 
 # =============================================================================
-# DENSIDADES CALIBRADAS (pts/mm²) — baseadas em Wilcom real
+# DENSIDADES BASE CALIBRADAS (pts/mm²) — modo Médio (5.5)
 # =============================================================================
 
-DENSIDADE_TATAMI_LEVE   = 2.2   # logos simples, ícones
-DENSIDADE_TATAMI_MEDIO  = 2.8   # logos padrão (brasões, lettering)
-DENSIDADE_TATAMI_DENSO  = 3.4   # detalhes finos, textos pequenos
-DENSIDADE_SATIN         = 3.2   # contornos/bordas (satin stitch)
-DENSIDADE_RUNNING       = 0.8   # underlay running stitch
+DENS_POR_TIPO = {
+    'icone_simples': 2.50,
+    'logo':          2.59,
+    'brasao':        3.24,
+    'texto':         3.50,
+}
 
-FATOR_UNDERLAY_SIMPLES  = 1.10  # logos simples
-FATOR_UNDERLAY_MEDIO    = 1.15  # logos padrão
-FATOR_UNDERLAY_COMPLEXO = 1.18  # brasões, muitos detalhes
+SLIDER_MULT = {
+    4.0: 0.65,
+    5.5: 1.00,
+    7.5: 1.45,
+    9.0: 1.90,
+}
 
 
 # =============================================================================
@@ -87,329 +88,326 @@ def nome_cor(rgb):
     return min(PALETA_BORDADO, key=lambda n: dist_perceptual(rgb, PALETA_BORDADO[n]))
 
 
-def detectar_fundo(img_rgba, margem=0.05):
-    w, h   = img_rgba.size
-    pixels = list(img_rgba.getdata())
-    m      = max(2, int(min(w, h) * margem))
-    amostras = [
-        (r//15*15, g//15*15, b//15*15)
-        for y in range(h) for x in range(w)
-        if (x < m or x >= w-m or y < m or y >= h-m)
-        for r, g, b, a in [pixels[y*w+x]] if a > 128
-    ]
-    return Counter(amostras).most_common(1)[0][0] if amostras else None
+# =============================================================================
+# DETECÇÃO DE FUNDO — flood fill das bordas (não remove interior)
+# =============================================================================
+
+def _mascara_fundo_flood(arr_rgba, tolerancia=28):
+    """
+    Remove fundo por flood fill conectado às bordas.
+    Se a cor da borda cobre >40% da imagem → não é fundo (ex: bandeira verde).
+    Retorna array booleano: True = pixel de fundo a remover.
+    """
+    h, w = arr_rgba.shape[:2]
+
+    # Cor dominante nas bordas
+    borda_pixels = np.concatenate([
+        arr_rgba[0, :, :3],  arr_rgba[-1, :, :3],
+        arr_rgba[:, 0, :3],  arr_rgba[:, -1, :3],
+    ])
+    borda_alpha = np.concatenate([
+        arr_rgba[0, :, 3],  arr_rgba[-1, :, 3],
+        arr_rgba[:, 0, 3],  arr_rgba[:, -1, 3],
+    ])
+    validos = borda_pixels[borda_alpha > 128]
+    if len(validos) == 0:
+        return np.zeros((h, w), dtype=bool)
+
+    q = (validos // 15 * 15)
+    uniq, counts = np.unique(q.reshape(-1, 3), axis=0, return_counts=True)
+    cor_fundo = tuple(int(v) for v in uniq[counts.argmax()])
+
+    # Guarda de segurança: cor da borda cobre >40% da imagem = conteúdo, não fundo
+    dist_global = np.sqrt(
+        ((arr_rgba[:,:,0].astype(int) - cor_fundo[0]) * 0.299)**2 +
+        ((arr_rgba[:,:,1].astype(int) - cor_fundo[1]) * 0.587)**2 +
+        ((arr_rgba[:,:,2].astype(int) - cor_fundo[2]) * 0.114)**2
+    )
+    if float((dist_global < tolerancia).mean()) > 0.40:
+        return np.zeros((h, w), dtype=bool)
+
+    # Flood fill BFS das 4 bordas
+    visitado = np.zeros((h, w), dtype=bool)
+    fila = []
+
+    def try_add(x, y):
+        if 0 <= x < w and 0 <= y < h and not visitado[y, x]:
+            pixel = arr_rgba[y, x, :3]
+            d = math.sqrt(
+                ((int(pixel[0]) - cor_fundo[0]) * 0.299)**2 +
+                ((int(pixel[1]) - cor_fundo[1]) * 0.587)**2 +
+                ((int(pixel[2]) - cor_fundo[2]) * 0.114)**2
+            )
+            if d <= tolerancia and arr_rgba[y, x, 3] > 128:
+                visitado[y, x] = True
+                fila.append((x, y))
+
+    for x in range(w):
+        try_add(x, 0); try_add(x, h - 1)
+    for y in range(h):
+        try_add(0, y); try_add(w - 1, y)
+
+    while fila:
+        cx, cy = fila.pop()
+        for nx, ny in [(cx-1,cy),(cx+1,cy),(cx,cy-1),(cx,cy+1)]:
+            try_add(nx, ny)
+
+    return visitado
 
 
 # =============================================================================
-# DETECÇÃO DE TIPO DE ELEMENTO (calibrada)
+# TIPO DE ELEMENTO
 # =============================================================================
 
-def detectar_tipo_elemento(img_rgba, rgb_fundo=None):
-    """
-    Classifica o tipo dominante do design.
-    Retorna (tipo, razao_borda, complexidade)
-    
-    tipos: 'texto', 'icone_simples', 'logo', 'brasao'
-    complexidade: 0.0 (simples) a 1.0 (complexo)
-    """
+def _detectar_tipo(img_rgba, mascara_bool):
+    """Classifica: icone_simples, logo, brasao ou texto."""
     arr   = np.array(img_rgba)
-    gray  = np.array(img_rgba.convert('L'))
     edges = np.array(img_rgba.convert('L').filter(ImageFilter.FIND_EDGES))
 
-    total_px = arr.shape[0] * arr.shape[1]
-
-    # Pixels válidos (não fundo, não transparente)
-    if rgb_fundo:
-        dist_map = (
-            abs(arr[:,:,0].astype(int) - rgb_fundo[0]) * 0.299 +
-            abs(arr[:,:,1].astype(int) - rgb_fundo[1]) * 0.587 +
-            abs(arr[:,:,2].astype(int) - rgb_fundo[2]) * 0.114
-        )
-        mascara_valida = (dist_map > 25) & (arr[:,:,3] > 128)
-    else:
-        mascara_valida = arr[:,:,3] > 128
-
-    px_validos = int(np.count_nonzero(mascara_valida))
+    total_px   = arr.shape[0] * arr.shape[1]
+    px_validos = int(np.count_nonzero(mascara_bool))
     if px_validos == 0:
-        return 'logo', 0.2, 0.5
+        return 'logo'
 
-    px_bordas  = int(np.count_nonzero(edges > 25))
-    razao_borda = px_bordas / total_px
+    razao_borda   = int(np.count_nonzero(edges > 25)) / total_px
+    cores_validas = arr[:,:,:3][mascara_bool]
+    var_cor       = float(cores_validas.std()) / 255.0 if len(cores_validas) > 0 else 0
 
-    # Variância de cores (maior = mais complexo)
-    cores_validas = arr[:,:,:3][mascara_valida]
-    variancia_cor = float(cores_validas.std()) / 255.0 if len(cores_validas) > 0 else 0
-
-    # Número estimado de regiões distintas (via quantização)
-    base = Image.new("RGB", img_rgba.size, (255,255,255))
+    base  = Image.new("RGB", img_rgba.size, (255, 255, 255))
     base.paste(img_rgba.convert("RGB"), mask=img_rgba.split()[3])
-    img_q = base.quantize(colors=16, method=Image.Quantize.MEDIANCUT)
-    arr_q = np.array(img_q)
-    n_regioes = len(np.unique(arr_q[mascara_valida.reshape(arr_q.shape)]))
+    arr_q = np.array(base.quantize(colors=16, method=Image.Quantize.MEDIANCUT))
+    n_reg = len(np.unique(arr_q[mascara_bool.reshape(arr_q.shape)]))
 
-    # Complexidade 0–1
-    complexidade = min(1.0, (razao_borda * 2 + variancia_cor + n_regioes/16) / 3)
+    complexidade = min(1.0, (razao_borda * 2 + var_cor + n_reg / 16) / 3)
 
-    # Classificação
-    if razao_borda > 0.12 and variancia_cor < 0.25:
-        tipo = 'texto'
-    elif n_regioes <= 3 and complexidade < 0.3:
-        tipo = 'icone_simples'
-    elif complexidade > 0.6 or n_regioes > 8:
-        tipo = 'brasao'
-    else:
-        tipo = 'logo'
-
-    return tipo, razao_borda, complexidade
+    if razao_borda > 0.12 and var_cor < 0.25:
+        return 'texto'
+    elif n_reg <= 2 and complexidade < 0.25:
+        return 'icone_simples'
+    elif complexidade > 0.60 or n_reg > 8:
+        return 'brasao'
+    return 'logo'
 
 
 # =============================================================================
-# CÁLCULO DE PONTOS POR COR (calibrado)
+# QUANTIZAÇÃO DE CORES
 # =============================================================================
 
-def calcular_pontos_por_cor(img_rgba, nomes_cores, largura_mm, altura_mm,
-                             tipo_elemento, razao_borda, complexidade,
-                             rgb_fundo=None):
+def _quantizar_cores(img_rgba, mascara_bool, n_max=12, min_cob=0.015):
+    """Extrai cores dominantes apenas da área bordada."""
+    arr = np.array(img_rgba)
+
+    arr_m = arr.copy()
+    arr_m[~mascara_bool] = [255, 255, 255, 0]
+    img_m = Image.fromarray(arr_m.astype(np.uint8), 'RGBA')
+
+    base  = Image.new("RGB", img_m.size, (255, 255, 255))
+    base.paste(img_m.convert("RGB"), mask=img_m.split()[3])
+    img_q     = base.quantize(colors=n_max, method=Image.Quantize.MEDIANCUT).convert("RGB")
+    cores_raw = img_q.getcolors(maxcolors=n_max * 4) or []
+    total     = sum(c[0] for c in cores_raw)
+    if not total:
+        return []
+
+    px_validos = int(np.count_nonzero(mascara_bool))
+    nomes = []
+    for count, rgb in sorted(cores_raw, reverse=True):
+        if count / px_validos < min_cob:
+            continue
+        n = nome_cor(rgb)
+        if n not in nomes:
+            nomes.append(n)
+    return nomes
+
+
+# =============================================================================
+# CÁLCULO DE PONTOS — atribuição exclusiva (sem double counting)
+# =============================================================================
+
+def _pontos_por_cor(arr, mascara_bool, nomes_cores, area_mm2, dens_efetiva):
     """
-    Calcula pontos por cor com atribuição EXCLUSIVA de pixels.
-
-    Cada pixel é atribuído à cor comercial mais próxima — sem double counting.
-    Isso é o que garante que a soma dos pontos por cor == total de pontos.
-
-    Calibração baseada em dados reais do Wilcom:
-      - Logo 80.5×67.6mm, 64% cobertura → 11.290 pts efetivos
-      - Densidade efetiva: ~3.24 pts/mm² (fill + satin + underlay)
+    Cada pixel é atribuído à cor mais próxima.
+    Garante: soma dos pontos por cor == total de pontos.
     """
-    arr  = np.array(img_rgba)
-    w, h = img_rgba.size
-    area_total_mm2 = largura_mm * altura_mm
+    if not nomes_cores:
+        return []
 
-    # Mapa de bordas
-    edges         = np.array(img_rgba.convert('L').filter(ImageFilter.FIND_EDGES))
-    mascara_borda = edges > 30
-
-    # Densidade base por tipo
-    densidade_fill = {
-        'texto':         DENSIDADE_TATAMI_DENSO,
-        'icone_simples': DENSIDADE_TATAMI_LEVE,
-        'logo':          DENSIDADE_TATAMI_MEDIO,
-        'brasao':        DENSIDADE_TATAMI_MEDIO,
-    }.get(tipo_elemento, DENSIDADE_TATAMI_MEDIO)
-
-    # Underlay por complexidade
-    if complexidade < 0.3:
-        fator_ul = FATOR_UNDERLAY_SIMPLES
-    elif complexidade < 0.6:
-        fator_ul = FATOR_UNDERLAY_MEDIO
-    else:
-        fator_ul = FATOR_UNDERLAY_COMPLEXO
-
-    # ------------------------------------------------------------------
-    # ATRIBUIÇÃO EXCLUSIVA: cada pixel → cor mais próxima
-    # ------------------------------------------------------------------
-    # Máscara global de pixels bordados (não fundo, não transparente)
-    if rgb_fundo:
-        dist_fundo_global = (
-            abs(arr[:,:,0].astype(int) - rgb_fundo[0]) * 0.299 +
-            abs(arr[:,:,1].astype(int) - rgb_fundo[1]) * 0.587 +
-            abs(arr[:,:,2].astype(int) - rgb_fundo[2]) * 0.114
-        )
-        mascara_global = (dist_fundo_global > 22) & (arr[:,:,3] > 128)
-    else:
-        mascara_global = arr[:,:,3] > 128
-
-    # Para cada pixel bordado, calcula distância a cada cor comercial
-    # e atribui ao mais próximo
-    if len(nomes_cores) == 0:
-        return [], fator_ul
-
-    # Mapa de distâncias para cada cor candidata
     dist_maps = []
     for nome in nomes_cores:
-        rgb_alvo = PALETA_BORDADO[nome]
-        dm = (
-            abs(arr[:,:,0].astype(int) - rgb_alvo[0]) * 0.299 +
-            abs(arr[:,:,1].astype(int) - rgb_alvo[1]) * 0.587 +
-            abs(arr[:,:,2].astype(int) - rgb_alvo[2]) * 0.114
+        rgb = PALETA_BORDADO[nome]
+        dm  = (
+            abs(arr[:,:,0].astype(int) - rgb[0]) * 0.299 +
+            abs(arr[:,:,1].astype(int) - rgb[1]) * 0.587 +
+            abs(arr[:,:,2].astype(int) - rgb[2]) * 0.114
         )
         dist_maps.append(dm)
 
-    # Índice da cor mais próxima para cada pixel
-    dist_stack  = np.stack(dist_maps, axis=0)  # (n_cores, h, w)
-    idx_mais_prox = np.argmin(dist_stack, axis=0)  # (h, w)
+    idx   = np.argmin(np.stack(dist_maps, axis=0), axis=0)
+    gray  = (arr[:,:,0]*0.299 + arr[:,:,1]*0.587 + arr[:,:,2]*0.114).astype(np.uint8)
+    edges = np.array(Image.fromarray(gray, 'L').filter(ImageFilter.FIND_EDGES)) > 30
 
-    resultado = []
+    total_px = arr.shape[0] * arr.shape[1]
+    detalhes = []
 
     for i, nome in enumerate(nomes_cores):
-        # Pixels exclusivamente desta cor E dentro da máscara global
-        mascara_cor = (idx_mais_prox == i) & mascara_global
-
-        px_cor = int(np.count_nonzero(mascara_cor))
-        if px_cor == 0:
+        mask_cor = (idx == i) & mascara_bool
+        px       = int(np.count_nonzero(mask_cor))
+        if px == 0:
             continue
 
-        fracao   = px_cor / (w * h)
-        area_cor = area_total_mm2 * fracao
+        fracao   = px / total_px
+        area_cor = area_mm2 * fracao
+        pontos   = int(area_cor * dens_efetiva)
 
-        # Proporção de borda
-        px_borda_cor = int(np.count_nonzero(mascara_cor & mascara_borda))
-        r_borda = px_borda_cor / px_cor if px_cor > 0 else 0
-
-        # Densidade efetiva
-        densidade_eff = (
-            densidade_fill * (1 - r_borda) +
-            DENSIDADE_SATIN * r_borda
+        r_borda = int(np.count_nonzero(mask_cor & edges)) / px
+        tipo_st = (
+            'Satin / Contorno'      if r_borda > 0.50 else
+            'Satin + Tatami'        if r_borda > 0.25 else
+            'Tatami / Preenchimento'
         )
 
-        pontos = int(area_cor * densidade_eff * fator_ul)
-
-        if r_borda > 0.5:
-            tipo_stitch = 'Satin / Contorno'
-        elif r_borda > 0.25:
-            tipo_stitch = 'Satin + Tatami'
-        else:
-            tipo_stitch = 'Tatami / Preenchimento'
-
-        resultado.append({
+        detalhes.append({
             'nome':       nome,
             'rgb':        PALETA_BORDADO[nome],
             'pontos':     pontos,
             'area_mm2':   round(area_cor, 1),
             'r_borda':    round(r_borda, 3),
-            'tipo_ponto': tipo_stitch,
+            'tipo_ponto': tipo_st,
             'fracao':     fracao,
         })
 
-    return resultado, fator_ul
+    return detalhes
 
 
 # =============================================================================
-# QUANTIZAÇÃO DE CORES (melhorada)
+# HELPERS
 # =============================================================================
 
-def quantizar_cores(img_rgba, rgb_fundo=None, n_max=12, min_cobertura=0.015):
-    """
-    Extrai as cores dominantes do design, ignorando o fundo.
-    Retorna lista de nomes de cores comerciais.
-    """
-    base = Image.new("RGB", img_rgba.size, (255, 255, 255))
-    base.paste(img_rgba.convert("RGB"), mask=img_rgba.split()[3])
-
-    img_q     = base.quantize(colors=n_max, method=Image.Quantize.MEDIANCUT).convert("RGB")
-    cores_raw = img_q.getcolors(maxcolors=n_max * 4) or []
-    total     = sum(c[0] for c in cores_raw)
-
-    if not total:
-        return []
-
-    nomes = []
-    for count, rgb in sorted(cores_raw, reverse=True):
-        if count / total < min_cobertura:
-            continue
-        if rgb_fundo and dist_perceptual(rgb, rgb_fundo) < 28:
-            continue
-        n = nome_cor(rgb)
-        if n not in nomes:
-            nomes.append(n)
-
-    return nomes
+def _slider_mult(densidade):
+    k = min(SLIDER_MULT.keys(), key=lambda x: abs(x - float(densidade)))
+    return SLIDER_MULT[k]
 
 
-# =============================================================================
-# FUNÇÃO PRINCIPAL
-# =============================================================================
-
-def analisar_imagem(img_pil, largura_mm, altura_mm,
-                    densidade=None, pontos_por_min=850):
-    """
-    Análise completa de imagem para bordado, calibrada com dados Wilcom.
-
-    O parâmetro 'densidade' agora é usado apenas como multiplicador fino
-    (escala de 0.5 a 2.0×) sobre a densidade base calibrada.
-    Valor padrão = 1.0 (sem ajuste).
-
-    Args:
-        img_pil:       Imagem PIL
-        largura_mm:    Largura do bordado
-        altura_mm:     Altura do bordado
-        densidade:     Ajuste fino (0.5–2.0). None ou 1.0 = sem ajuste.
-        pontos_por_min: Velocidade da máquina
-
-    Returns:
-        dict com todos os dados da análise
-    """
-    img_rgba = img_pil.convert('RGBA')
-    w, h     = img_rgba.size
-    pixels   = list(img_rgba.getdata())
-
-    # Detecção de fundo
-    tem_alpha = any(a < 128 for *_, a in pixels)
-    if tem_alpha:
-        rgb_fundo    = None
-        px_validos   = [(r,g,b) for r,g,b,a in pixels if a >= 128]
-    else:
-        rgb_fundo    = detectar_fundo(img_rgba)
-        px_validos   = [
-            (r,g,b) for r,g,b,a in pixels
-            if not (rgb_fundo and dist_perceptual((r,g,b), rgb_fundo) < 28)
-        ]
-
-    if not px_validos:
-        return None
-
-    total_px         = w * h
-    fator_cobertura  = len(px_validos) / total_px
-    area_mm2         = largura_mm * altura_mm
-
-    # Tipo e complexidade
-    tipo_elem, razao_borda, complexidade = detectar_tipo_elemento(img_rgba, rgb_fundo)
-
-    # Cores
-    nomes_cores = quantizar_cores(img_rgba, rgb_fundo)
-
-    # Pontos por cor
-    detalhes_cores, fator_ul = calcular_pontos_por_cor(
-        img_rgba, nomes_cores, largura_mm, altura_mm,
-        tipo_elem, razao_borda, complexidade, rgb_fundo
-    )
-
-    # Ajuste fino pelo parâmetro densidade (mapeado de [3,12] → [0.6,1.5])
-    if densidade is not None and densidade != 5.5:
-        # 5.5 é o "neutro" do slider antigo
-        # Novo: mapeia [3,12] para [0.75, 1.30]
-        fator_ajuste = 0.75 + (float(densidade) - 3) / (12 - 3) * 0.55
-        for d in detalhes_cores:
-            d['pontos'] = int(d['pontos'] * fator_ajuste)
-
-    total_pontos = sum(d['pontos'] for d in detalhes_cores)
-
-    # Bastidor
-    lw, lh = largura_mm, altura_mm
-    bastidor = (
+def _bastidor(lw, lh):
+    return (
         '6x6'   if lw <= 60  and lh <= 60  else
         '10x10' if lw <= 100 and lh <= 100 else
         '13x18' if lw <= 130 and lh <= 180 else
         '20x26' if lw <= 200 and lh <= 260 else '30x40'
     )
 
-    # Tempo
-    trocas    = max(0, len(detalhes_cores) - 1)
-    tempo_min = math.ceil(total_pontos / pontos_por_min + trocas * 2.0)
 
+def _montar_resultado(tipo, cobertura, dens_ef, densidade, detalhes,
+                       largura_mm, altura_mm, pontos_por_min, mascara_aplicada):
+    total  = sum(d['pontos'] for d in detalhes)
+    trocas = max(0, len(detalhes) - 1)
+    tempo  = math.ceil(total / max(1, pontos_por_min) + trocas * 2.0)
     return {
-        'tipo_elemento':   tipo_elem,
-        'razao_borda':     round(razao_borda, 3),
-        'complexidade':    round(complexidade, 3),
-        'fator_cobertura': round(fator_cobertura * 100, 1),  # em %
-        'fator_underlay':  round(fator_ul, 2),
-        'total_pontos':    total_pontos,
-        'detalhes_cores':  detalhes_cores,
-        'sequencia_nomes': ' → '.join(d['nome'] for d in detalhes_cores),
-        'n_cores':         len(detalhes_cores),
-        'trocas_linha':    trocas,
-        'tempo_min':       tempo_min,
-        'bastidor':        bastidor,
-        'largura_mm':      largura_mm,
-        'altura_mm':       altura_mm,
-        'rgb_fundo':       rgb_fundo,
+        'tipo_elemento':      tipo,
+        'fator_cobertura':    round(cobertura, 4),   # SEMPRE fração 0.0–1.0
+        'densidade_escolhida': float(densidade),
+        'densidade_efetiva':  round(dens_ef, 3),
+        'total_pontos':       total,
+        'detalhes_cores':     detalhes,
+        'sequencia_nomes':    ' → '.join(d['nome'] for d in detalhes),
+        'n_cores':            len(detalhes),
+        'trocas_linha':       trocas,
+        'tempo_min':          tempo,
+        'bastidor':           _bastidor(largura_mm, altura_mm),
+        'largura_mm':         largura_mm,
+        'altura_mm':          altura_mm,
+        'rgb_fundo':          None,
+        'mascara_aplicada':   mascara_aplicada,
     }
+
+
+# =============================================================================
+# ANÁLISE AUTOMÁTICA (sem máscara)
+# =============================================================================
+
+def analisar_imagem(img_pil, largura_mm, altura_mm,
+                    densidade=5.5, pontos_por_min=850):
+    """
+    Análise automática com remoção inteligente de fundo.
+
+    Args:
+        densidade: 4.0=Leve, 5.5=Médio, 7.5=Denso, 9.0=Pesado
+
+    Returns:
+        dict com fator_cobertura como FRAÇÃO 0.0–1.0
+    """
+    img_rgba = img_pil.convert('RGBA')
+    w, h     = img_rgba.size
+    arr      = np.array(img_rgba)
+    area_mm2 = largura_mm * altura_mm
+
+    # Máscara
+    tem_alpha    = bool((arr[:,:,3] < 128).any())
+    if tem_alpha:
+        mascara_bool = arr[:,:,3] >= 128
+    else:
+        fundo_mask   = _mascara_fundo_flood(arr)
+        mascara_bool = ~fundo_mask & (arr[:,:,3] >= 128)
+
+    px_sel = int(np.count_nonzero(mascara_bool))
+    if px_sel == 0:
+        return None
+
+    cobertura = px_sel / (w * h)
+    tipo      = _detectar_tipo(img_rgba, mascara_bool)
+    dens_ef   = DENS_POR_TIPO[tipo] * _slider_mult(densidade)
+
+    nomes    = _quantizar_cores(img_rgba, mascara_bool)
+    if not nomes:
+        return None
+    detalhes = _pontos_por_cor(arr, mascara_bool, nomes, area_mm2, dens_ef)
+    if not detalhes:
+        return None
+
+    return _montar_resultado(tipo, cobertura, dens_ef, densidade,
+                              detalhes, largura_mm, altura_mm,
+                              pontos_por_min, False)
+
+
+# =============================================================================
+# ANÁLISE COM MÁSCARA (seleção manual do canvas)
+# =============================================================================
+
+def analisar_imagem_com_mascara(img_pil, mascara_pil, largura_mm, altura_mm,
+                                  densidade=5.5, pontos_por_min=850):
+    """
+    Análise com máscara manual — mais precisa que a automática.
+
+    Args:
+        mascara_pil: imagem PIL modo 'L' — branco=bordar, preto=ignorar
+        densidade:   4.0=Leve, 5.5=Médio, 7.5=Denso, 9.0=Pesado
+
+    Returns:
+        dict com fator_cobertura como FRAÇÃO 0.0–1.0
+    """
+    img_rgba = img_pil.convert('RGBA')
+    w, h     = img_rgba.size
+    arr      = np.array(img_rgba)
+    area_mm2 = largura_mm * altura_mm
+
+    mascara_resize = mascara_pil.resize((w, h), Image.NEAREST)
+    mascara_bool   = np.array(mascara_resize) > 128
+
+    px_sel = int(np.count_nonzero(mascara_bool))
+    if px_sel < 10:
+        return None
+
+    cobertura = px_sel / (w * h)
+    tipo      = _detectar_tipo(img_rgba, mascara_bool)
+    dens_ef   = DENS_POR_TIPO[tipo] * _slider_mult(densidade)
+
+    nomes    = _quantizar_cores(img_rgba, mascara_bool)
+    if not nomes:
+        return None
+    detalhes = _pontos_por_cor(arr, mascara_bool, nomes, area_mm2, dens_ef)
+    if not detalhes:
+        return None
+
+    return _montar_resultado(tipo, cobertura, dens_ef, densidade,
+                              detalhes, largura_mm, altura_mm,
+                              pontos_por_min, True)
